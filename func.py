@@ -8,7 +8,7 @@ block_size = 512 * 1024
 
 
 def download(url):
-    response = requests.get(url)
+    response = requests.get(url, timeout=(10, 60))
     response.raise_for_status()
 
     return response.content

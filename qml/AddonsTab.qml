@@ -9,7 +9,7 @@ SplitView {
     orientation: Qt.Horizontal
 
     Item {
-        SplitView.preferredWidth: Math.round(root.width * 0.38)
+        SplitView.preferredWidth: Math.round(root.width * 0.30)
         SplitView.minimumWidth: 220
 
         ColumnLayout {
@@ -39,7 +39,7 @@ SplitView {
                 height: Theme.barHeight
                 color: Theme.bgSurface
 
-                property int sortIndex: 0
+                property int sortIndex: 3
 
                 RowLayout {
                     anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
@@ -125,11 +125,11 @@ SplitView {
 
                 delegate: Item {
                     width: listView.width
-                    height: 60
+                    height: 76
 
                     Rectangle {
                         anchors.fill: parent
-                        color: root.selectedUID === model.UID ? Theme.bgSelected : "transparent"
+                        color: root.selectedUID === model.uid ? Theme.bgSelected : "transparent"
                     }
 
                     Text {
@@ -138,14 +138,14 @@ SplitView {
                             left: parent.left; leftMargin: 10
                             verticalCenter: parent.verticalCenter
                         }
-                        text: root.favouriteUIDs[model.UID] ? "★" : "☆"
+                        text: root.favouriteUIDs[model.uid] ? "★" : "☆"
                         font.pixelSize: 24
-                        color: root.favouriteUIDs[model.UID] ? Theme.starActive : Theme.starInactive
+                        color: root.favouriteUIDs[model.uid] ? Theme.starActive : Theme.starInactive
 
                         MouseArea {
                             anchors.fill: parent
                             onClicked: {
-                                backend.toggleFavourite(model.UID, model.UIName)
+                                backend.toggleFavourite(model.uid, model.name)
                                 root.refreshFavouriteUIDs()
                             }
                         }
@@ -160,7 +160,7 @@ SplitView {
                         spacing: 2
 
                         Text {
-                            text: model.UIName
+                            text: model.name
                             font.pixelSize: Theme.fontBase
                             font.bold: true
                             elide: Text.ElideRight
@@ -173,12 +173,16 @@ SplitView {
                             elide: Text.ElideRight
                             width: parent.width
                             text: {
-                                var stats = root.fmtNum(model.UIDownloadTotal) + " downloads"
-                                    + " (" + root.fmtNum(model.UIDownloadMonthly) + " this month)"
-                                    + ", " + root.fmtNum(model.UIFavoriteTotal) + " in favorites"
-                                    + ", updated " + Qt.formatDate(new Date(model.UIDate), "d MMM yyyy")
-                                return model.UIAuthorName ? model.UIAuthorName + "  ·  " + stats : stats
+                                var stats = root.fmtNum(model.downloads) + " downloads"
+                                    + " (" + root.fmtNum(model.monthlyDownloads) + " this month)"
+                                    + ", " + root.fmtNum(model.favorites) + " in favorites"
+                                return model.author ? "By " + model.author + "  ·  " + stats : stats
                             }
+                        }
+                        Text {
+                            font.pixelSize: Theme.fontSm
+                            color: Theme.textSecondary
+                            text: "Updated " + Qt.formatDate(new Date(model.date), "d MMM yyyy")
                         }
                     }
 
@@ -194,21 +198,21 @@ SplitView {
                         BusyIndicator {
                             anchors.centerIn: parent
                             width: 28; height: 28
-                            running: root.pendingUID === model.UID
+                            running: root.pendingUID === model.uid
                             visible: running
                         }
 
                         Button {
                             anchors.fill: parent
-                            visible: root.pendingUID !== model.UID
+                            visible: root.pendingUID !== model.uid
                             enabled: !root.syncing
-                            text: root.installedUIDs[model.UID] ? "Remove" : "Install"
+                            text: root.installedUIDs[model.uid] ? "Remove" : "Install"
                             onClicked: {
-                                root.pendingUID = model.UID
-                                if (root.installedUIDs[model.UID])
-                                    backend.removeAddon(model.UID)
+                                root.pendingUID = model.uid
+                                if (root.installedUIDs[model.uid])
+                                    backend.removeAddon(model.uid)
                                 else
-                                    backend.installAddon(model.UID, model.UIName)
+                                    backend.installAddon(model.uid, model.name)
                             }
                         }
                     }
@@ -224,12 +228,12 @@ SplitView {
                         anchors.fill: parent
                         z: -1
                         onClicked: {
-                            root.selectedUID = model.UID
+                            root.selectedUID = model.uid
                             detailText.text = ""
                             root.detailLoading = true
-                            root.currentInfoURL = model.UIFileInfoURL
-                            root.currentAddonName = model.UIName
-                            backend.fetchAddonDetails(model.UID)
+                            root.currentInfoURL = model.url
+                            root.currentAddonName = model.name
+                            backend.fetchAddonDetails(model.uid)
                         }
                     }
                 }
@@ -395,33 +399,32 @@ SplitView {
         favouriteUIDs = set
     }
 
-    function filterList(query) {
+    function filterList(query, preserveScroll) {
+        const firstIdx = preserveScroll ? Math.max(0, listView.indexAt(1, listView.contentY + 1)) : -1
         addonModel.clear()
         const q = query.toLowerCase()
         const filtered = allAddons.filter(a => {
-            if (q && !a.UIName.toLowerCase().includes(q) && !a.UIAuthorName.toLowerCase().includes(q))
+            if (q && !a.name.toLowerCase().includes(q) && !a.author.toLowerCase().includes(q))
                 return false
             if (filterBar.filterInstalled || filterBar.filterFavourites) {
-                if (filterBar.filterInstalled && installedUIDs[a.UID])   return true
-                if (filterBar.filterFavourites && favouriteUIDs[a.UID])  return true
+                if (filterBar.filterInstalled && installedUIDs[a.uid])   return true
+                if (filterBar.filterFavourites && favouriteUIDs[a.uid])  return true
                 return false
             }
             return true
         })
-        const keys = ['UIName', 'UIAuthorName', 'UIDownloadTotal', 'UIDownloadMonthly', 'UIFavoriteTotal', 'UIDate']
-        const key = keys[sortBar.sortIndex]
-        if (key === 'UIName' || key === 'UIAuthorName')
-            filtered.sort((a, b) => a[key].localeCompare(b[key]))
-        else
-            filtered.sort((a, b) => b[key] - a[key])
+        const key = ['name', 'author', 'downloads', 'monthlyDownloads', 'favorites', 'date'][sortBar.sortIndex]
+        filtered.sort((a, b) => typeof a[key] === 'string' ? a[key].localeCompare(b[key]) : b[key] - a[key])
         for (const addon of filtered) addonModel.append(addon)
+        if (firstIdx > 0)
+            Qt.callLater(() => listView.positionViewAtIndex(Math.min(firstIdx, addonModel.count - 1), ListView.Beginning))
     }
 
     Connections {
         target: backend
         function onAddonListReady(addons) {
             root.allAddons = addons
-            root.filterList(searchField.text)
+            root.filterList(searchField.text, true)
         }
         function onUpdateStarted()  { root.syncing = true }
         function onUpdateFinished() { root.syncing = false; root.pendingUID = "" }
@@ -430,7 +433,6 @@ SplitView {
     }
 
     Component.onCompleted: {
-        backend.fetchAddonList()
         root.refreshInstalledUIDs()
         root.refreshFavouriteUIDs()
     }
