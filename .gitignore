@@ -1,6 +1,5 @@
-/build/*.spec
-/build/build/
-/build/dist
+/build/work/
+/build/dist/
 /__pycache__/
 /.idea/
 /.venv/

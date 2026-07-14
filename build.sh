@@ -2,6 +2,8 @@
 
 cd $(dirname $0)
 
+mkdir -p build
+
 cd build
 
-pyinstaller --clean ../app.spec
+pyinstaller --clean --distpath dist --workpath work ../app.spec

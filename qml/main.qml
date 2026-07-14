@@ -28,7 +28,6 @@ ApplicationWindow {
     ColumnLayout {
         anchors.fill: parent
         spacing: 1
-        enabled: updateOverlay.status === ""
 
         Rectangle {
             Layout.fillWidth: true
@@ -173,42 +172,6 @@ ApplicationWindow {
                 }
             }
         }
-    }
-
-    Rectangle {
-        id: updateOverlay
-        anchors.fill: parent
-        color: Theme.bg
-        visible: status !== ""
-
-        property string status: "Checking for updates..."
-        property bool done: status.startsWith("Update complete")
-
-        Column {
-            anchors.centerIn: parent
-            spacing: 16
-
-            BusyIndicator {
-                anchors.horizontalCenter: parent.horizontalCenter
-                visible: !updateOverlay.done
-            }
-
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "✓"
-                color: "#4caf50"
-                font.pixelSize: 48
-                visible: updateOverlay.done
-            }
-
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: updateOverlay.status
-                color: Theme.textPrimary
-                font.pixelSize: 15
-            }
-        }
-
     }
 
     Dialog {
@@ -362,18 +325,6 @@ ApplicationWindow {
         }
         function onTargetDirectoryChanged(path) { targetDirField.text = path }
         function onTargetDirectoryPicked(oldPath, newPath) { scanDialog.openFor(oldPath, true) }
-        function onAppUpdateStatus(msg) {
-            updateOverlay.status = msg
-            if (msg === "") {
-                if (backend.getSyncOnLaunch()) {
-                    goTo(tabLog)
-                    backend.runUpdate()
-                } else {
-                    listLoading = true
-                    backend.fetchAddonList()
-                }
-            }
-        }
     }
 
     property bool ttcClientVisible: backend ? backend.hasTtcClient() : false
@@ -385,6 +336,12 @@ ApplicationWindow {
 
     Component.onCompleted: {
         goTo(tabInstalled)
-        backend.checkForUpdate()
+        if (backend.getSyncOnLaunch()) {
+            goTo(tabLog)
+            backend.runUpdate()
+        } else {
+            listLoading = true
+            backend.fetchAddonList()
+        }
     }
 }

@@ -3,52 +3,47 @@ name: Build
 on:
   push:
     tags:
-      - 'current'
+      - current
+      - testing
 
 permissions:
   contents: write
 
 jobs:
-  pyinstaller-build-windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: eso-addons-manager-windows-amd64.zip
+          - os: ubuntu-latest
+            asset: eso-addons-manager-linux-amd64.zip
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Create Executable
-        uses: sayyid5416/pyinstaller@v1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python_ver: '3.12'
-          spec: 'app.spec'
-          requirements: 'requirements.txt'
-          upload_exe_with_name: 'EsoAddOnsUpdater-Windows'
-      - name: Write version
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: pyinstaller app.spec
+      - name: Package + checksum
+        shell: bash
         run: |
-          echo ${{ github.sha }} > dist/version.txt
-      - name: Release
-        uses: softprops/action-gh-release@v2
+          python - <<'PY'
+          import hashlib, shutil
+          asset = "${{ matrix.asset }}"
+          shutil.make_archive(asset[:-4], 'zip', 'dist/app')
+          data = open(asset, 'rb').read()
+          open(asset + '.sha256', 'w').write(hashlib.sha256(data).hexdigest())
+          PY
+      - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          prerelease: ${{ github.ref_name == 'testing' }}
+          make_latest: ${{ github.ref_name == 'current' }}
           files: |
-            ./dist/app.exe
-            ./dist/version.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  pyinstaller-build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create Executable
-        uses: sayyid5416/pyinstaller@v1
-        with:
-          python_ver: '3.12'
-          spec: 'app.spec'
-          requirements: 'requirements.txt'
-          upload_exe_with_name: 'EsoAddOnsUpdater-Linux'
-      - name: Write version
-        run: |
-          echo ${{ github.sha }} > dist/version.txt
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ./dist/app
-            ./dist/version.txt
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
