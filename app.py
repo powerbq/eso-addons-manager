@@ -720,8 +720,7 @@ if __name__ == '__main__':
     _file_directory = os.path.dirname(_file_path)
     _bundle_directory = getattr(sys, '_MEIPASS', _file_directory)
 
-    if sys.platform == 'win32':
-        os.environ.setdefault('QT_QUICK_CONTROLS_STYLE', 'Fusion')
+    os.environ.setdefault('QT_QUICK_CONTROLS_STYLE', 'Fusion')
 
     QtWebEngineQuick.initialize()
     qt_app = QApplication(sys.argv)

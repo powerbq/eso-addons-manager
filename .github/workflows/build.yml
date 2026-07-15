@@ -19,6 +19,8 @@ jobs:
             asset: eso-addons-manager-windows-amd64.zip
           - os: ubuntu-latest
             asset: eso-addons-manager-linux-amd64.zip
+          - os: macos-14
+            asset: eso-addons-manager-macos-arm64.zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -29,14 +31,15 @@ jobs:
       - run: pyinstaller app.spec
       - name: Package + checksum
         shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
         run: |
-          python - <<'PY'
-          import hashlib, shutil
-          asset = "${{ matrix.asset }}"
-          shutil.make_archive(asset[:-4], 'zip', 'dist/app')
-          data = open(asset, 'rb').read()
-          open(asset + '.sha256', 'w').write(hashlib.sha256(data).hexdigest())
-          PY
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ditto -c -k --keepParent dist/app.app "$ASSET"
+          else
+            python -c "import shutil, os; shutil.make_archive(os.environ['ASSET'][:-4], 'zip', 'dist/app')"
+          fi
+          python -c "import hashlib, os; a = os.environ['ASSET']; open(a + '.sha256', 'w').write(hashlib.sha256(open(a, 'rb').read()).hexdigest())"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
