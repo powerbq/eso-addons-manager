@@ -452,7 +452,7 @@ SplitView {
         }
         function onUpdateStarted()  { root.syncing = true }
         function onUpdateFinished() { root.syncing = false; root.pendingUID = "" }
-        function onInstalledAddonsChanged() { root.refreshInstalledUIDs(); root.filterList(searchField.text) }
+        function onInstalledAddonsChanged() { root.refreshInstalledUIDs(); root.filterList(searchField.text, true) }
         function onAddonDetailsReady(text) { detailText.text = text; root.detailLoading = false }
     }
 
