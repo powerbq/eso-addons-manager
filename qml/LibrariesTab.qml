@@ -21,7 +21,9 @@ Item {
                 spacing: 8
 
                 Text {
-                    text: loading ? "Loading..." : (conflicts.length === 0 ? "No conflicts" : conflicts.length + " conflict" + (conflicts.length === 1 ? "" : "s"))
+                    text: loading ? "Loading..." : (conflicts.length === 0
+                        ? "No libraries provided by multiple candidates"
+                        : conflicts.length + (conflicts.length === 1 ? " library" : " libraries") + " provided by multiple candidates")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontMd
                 }
@@ -52,7 +54,7 @@ Item {
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     topPadding: 40
-                    text: "No library conflicts found"
+                    text: "No libraries provided by multiple candidates"
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontLg
                     visible: !loading && conflicts.length === 0

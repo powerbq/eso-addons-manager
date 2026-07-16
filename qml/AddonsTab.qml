@@ -151,9 +151,33 @@ SplitView {
                         }
                     }
 
-                    Column {
+                    Image {
+                        id: catIcon
                         anchors {
                             left: starBtn.right; leftMargin: 8
+                            verticalCenter: parent.verticalCenter
+                        }
+                        width: 40
+                        height: 40
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        cache: true
+                        source: model.catIcon || ""
+                        visible: model.catIcon
+
+                        ToolTip.visible: catIconArea.containsMouse && model.category
+                        ToolTip.text: model.category || ""
+
+                        MouseArea {
+                            id: catIconArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                        }
+                    }
+
+                    Column {
+                        anchors {
+                            left: catIcon.visible ? catIcon.right : starBtn.right; leftMargin: 8
                             right: actionBtn.left; rightMargin: 8
                             verticalCenter: parent.verticalCenter
                         }

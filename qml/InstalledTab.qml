@@ -47,9 +47,34 @@ Item {
                 width: listView.width
                 height: 52
 
+                Image {
+                    id: catIcon
+                    anchors {
+                        left: parent.left; leftMargin: 12
+                        verticalCenter: parent.verticalCenter
+                    }
+                    width: 40
+                    height: 40
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: true
+                    source: model.catIcon || ""
+                    visible: model.catIcon
+
+                    ToolTip.visible: catIconArea.containsMouse && model.category
+                    ToolTip.text: model.category || ""
+
+                    MouseArea {
+                        id: catIconArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                    }
+                }
+
                 Column {
                     anchors {
-                        left: parent.left; leftMargin: 14
+                        left: catIcon.visible ? catIcon.right : parent.left
+                        leftMargin: catIcon.visible ? 10 : 14
                         right: deleteArea.left; rightMargin: 8
                         verticalCenter: parent.verticalCenter
                     }
@@ -111,6 +136,7 @@ Item {
     Connections {
         target: backend
         function onInstalledAddonsChanged() { reload() }
+        function onAddonListReady(addons)   { reload() }
         function onUpdateStarted()          { syncing = true }
         function onUpdateFinished()         { pendingUID = ""; syncing = false }
     }

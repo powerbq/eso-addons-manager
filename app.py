@@ -171,13 +171,30 @@ def fetch_filelist():
     return json.loads(download(api_prefix + '/filelist.json'))
 
 
+def fetch_category_list():
+    if not category_cache:
+        try:
+            data = json.loads(download(api_prefix + '/categorylist.json'))
+        except Exception:
+            return category_cache
+        for obj in data:
+            category_cache[obj['UICATID']] = {
+                'title': obj.get('UICATTitle') or '',
+                'icon': obj.get('UICATICON') or '',
+            }
+    return category_cache
+
+
 def fetch_addon_details(uid):
     return json.loads(download(api_prefix + '/filedetails/' + uid + '.json'))[0]
 
 
 def parse_addon_list(filelist):
-    return [
-        {
+    categories = fetch_category_list()
+    result = []
+    for obj in filelist:
+        cat = categories.get(obj.get('UICATID'), {})
+        entry = {
             'uid': obj['UID'],
             'name': obj['UIName'],
             'author': obj.get('UIAuthorName') or '',
@@ -187,9 +204,12 @@ def parse_addon_list(filelist):
             'monthlyDownloads': int(obj.get('UIDownloadMonthly') or 0),
             'favorites': int(obj.get('UIFavoriteTotal') or 0),
             'date': int(obj.get('UIDate') or 0),
+            'category': cat.get('title', ''),
+            'catIcon': cat.get('icon', ''),
         }
-        for obj in filelist
-    ]
+        addon_meta[entry['uid']] = {'category': entry['category'], 'catIcon': entry['catIcon']}
+        result.append(entry)
+    return result
 
 
 def get_library_conflicts(filelist):
@@ -493,6 +513,8 @@ favourites = c['Favourites']
 database = {}
 candidates = {}
 uid_dirs = {}
+category_cache = {}
+addon_meta = {}
 
 satisfied = set()
 unsatisfied = set()
@@ -706,7 +728,15 @@ class QmlBackend(QObject):
     def getInstalledAddons(self):
         result = []
         for uid, name in c['AddOns'].items():
-            result.append({'uid': uid, 'name': name if name else uid})
+            meta = addon_meta.get(uid, {})
+            result.append(
+                {
+                    'uid': uid,
+                    'name': name if name else uid,
+                    'category': meta.get('category', ''),
+                    'catIcon': meta.get('catIcon', ''),
+                }
+            )
         return result
 
     @pyqtSlot(str, str)
