@@ -2,6 +2,8 @@
 
 cd $(dirname $0)
 
+./compile_translations.sh
+
 mkdir -p build
 
 cd build

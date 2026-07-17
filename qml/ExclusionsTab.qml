@@ -19,7 +19,7 @@ Item {
                 anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
 
                 Text {
-                    text: "Custom exclusions — one regex per line"
+                    text: qsTr("Custom exclusions — one regex per line")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontMd
                 }
@@ -27,7 +27,7 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 Button {
-                    text: "Save"
+                    text: qsTr("Save")
                     implicitHeight: Theme.buttonHeight
                     enabled: textArea.text !== savedText
                     opacity: enabled ? 1.0 : Theme.disabledOpacity
@@ -38,7 +38,7 @@ Item {
                 }
 
                 Button {
-                    text: "Clear"
+                    text: qsTr("Clear")
                     implicitHeight: Theme.buttonHeight
                     onClicked: textArea.text = ""
                 }
@@ -87,7 +87,7 @@ Item {
                 anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
 
                 Text {
-                    text: "Automatic (from installed addons)"
+                    text: qsTr("Automatic (from installed addons)")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontMd
                 }

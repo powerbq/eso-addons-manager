@@ -18,7 +18,7 @@ Item {
 
             Text {
                 anchors { left: parent.left; leftMargin: 12; verticalCenter: parent.verticalCenter }
-                text: installedModel.count + " addons installed"
+                text: qsTr("%n addon(s) installed", "", installedModel.count)
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontMd
             }
@@ -37,7 +37,7 @@ Item {
 
             Text {
                 anchors.centerIn: parent
-                text: "No addons installed"
+                text: qsTr("No addons installed")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontLg
                 visible: installedModel.count === 0
@@ -89,7 +89,7 @@ Item {
                         color: Theme.textPrimary
                     }
                     Text {
-                        text: "UID: " + model.uid
+                        text: qsTr("UID: %1").arg(model.uid)
                         font.pixelSize: Theme.fontSm
                         color: Theme.textSecondary
                     }
@@ -115,7 +115,7 @@ Item {
                         anchors.fill: parent
                         visible: pendingUID !== model.uid
                         enabled: !syncing
-                        text: "Remove"
+                        text: qsTr("Remove")
                         onClicked: {
                             pendingUID = model.uid
                             backend.removeAddon(model.uid)

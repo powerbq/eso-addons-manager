@@ -5,7 +5,7 @@ a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[('qml', 'qml')],
+    datas=[('qml', 'qml'), ('translations/*.qm', 'translations')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

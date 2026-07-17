@@ -8,7 +8,7 @@ ApplicationWindow {
     visibility: Window.Maximized
     minimumWidth: 800
     minimumHeight: 500
-    title: "ESO Addons Updater"
+    title: qsTr("ESO Addons Updater")
     color: Theme.bg
 
     palette.window:          Theme.bg
@@ -41,31 +41,31 @@ ApplicationWindow {
 
                 TabButton {
                     id: tabCatalogue
-                    text: "Catalogue"
+                    text: qsTr("Catalogue")
                     font.pixelSize: Theme.fontLg
                     implicitWidth: 140
                 }
                 TabButton {
                     id: tabInstalled
-                    text: "Installed"
+                    text: qsTr("Installed")
                     font.pixelSize: Theme.fontLg
                     implicitWidth: 140
                 }
                 TabButton {
                     id: tabLibraries
-                    text: "Libraries"
+                    text: qsTr("Libraries")
                     font.pixelSize: Theme.fontLg
                     implicitWidth: 140
                 }
                 TabButton {
                     id: tabExclusions
-                    text: "Exclusions"
+                    text: qsTr("Exclusions")
                     font.pixelSize: Theme.fontLg
                     implicitWidth: 140
                 }
                 TabButton {
                     id: tabLog
-                    text: "Log"
+                    text: qsTr("Log")
                     font.pixelSize: Theme.fontLg
                     implicitWidth: 140
                 }
@@ -93,8 +93,26 @@ ApplicationWindow {
                 anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
                 spacing: 6
 
+                ComboBox {
+                    id: langCombo
+                    implicitHeight: 28
+                    Layout.preferredWidth: 100
+                    Layout.rightMargin: 6
+                    leftPadding: 4
+                    font.pixelSize: Theme.fontMd
+                    textRole: "name"
+                    valueRole: "code"
+                    model: backend ? backend.getLanguages() : []
+                    function syncFromBackend() {
+                        currentIndex = Math.max(0, indexOfValue(backend ? backend.getLanguage() : ""))
+                    }
+                    Component.onCompleted: syncFromBackend()
+                    onModelChanged: syncFromBackend()
+                    onActivated: backend.setLanguage(currentValue)
+                }
+
                 Text {
-                    text: "AddOns folder:"
+                    text: qsTr("AddOns folder:")
                     font.pixelSize: Theme.fontMd
                     color: Theme.textSecondary
                 }
@@ -105,7 +123,7 @@ ApplicationWindow {
                     implicitHeight: 28
                     font.pixelSize: Theme.fontMd
                     text: backend ? backend.getTargetDirectory() : ""
-                    placeholderText: "Path to AddOns folder..."
+                    placeholderText: qsTr("Path to AddOns folder...")
                     readOnly: true
 
                     TextMetrics {
@@ -124,7 +142,7 @@ ApplicationWindow {
                 }
 
                 Button {
-                    text: "Scan for existing addons"
+                    text: qsTr("Scan for existing addons")
                     implicitHeight: 28
                     font.pixelSize: Theme.fontMd
                     enabled: !anyBusy
@@ -134,7 +152,7 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
 
                 Button {
-                    text: "Launch TTC Client"
+                    text: qsTr("Launch TTC Client")
                     implicitHeight: Theme.buttonHeight
                     visible: ttcClientVisible
                     onClicked: backend.launchTtcClient()
@@ -143,7 +161,7 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
 
                 CheckBox {
-                    text: "Sync on launch"
+                    text: qsTr("Sync on launch")
                     font.pixelSize: Theme.fontBase
                     checked: backend ? backend.getSyncOnLaunch() : false
                     onCheckedChanged: if (backend) backend.setSyncOnLaunch(checked)
@@ -157,14 +175,14 @@ ApplicationWindow {
                 }
 
                 Button {
-                    text: "Refresh List"
+                    text: qsTr("Refresh List")
                     implicitHeight: Theme.buttonHeight
                     visible: !anyBusy
                     onClicked: { listLoading = true; backend.fetchAddonList() }
                 }
 
                 Button {
-                    text: "Sync"
+                    text: qsTr("Sync")
                     implicitHeight: Theme.buttonHeight
                     visible: !anyBusy
                     Layout.leftMargin: 4
@@ -201,7 +219,7 @@ ApplicationWindow {
             spacing: 12
 
             Text {
-                text: "Scan folder for addons?"
+                text: qsTr("Scan folder for addons?")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontLg
                 font.bold: true
@@ -212,9 +230,8 @@ ApplicationWindow {
                 wrapMode: Text.WordWrap
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontBase
-                text: "Do you want to analyse this folder for installed addons and add them to your list?\n\n" +
-                      "Warning: detection may be inaccurate. Back up the folder first — its contents can be " +
-                      "overwritten on the next sync."
+                text: qsTr("Do you want to analyse this folder for installed addons and add them to your list?")
+                    + "\n\n" + qsTr("Warning: detection may be inaccurate. Back up the folder first — its contents can be overwritten on the next sync.")
             }
 
             RowLayout {
@@ -225,7 +242,7 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
 
                 Button {
-                    text: "No, don't change folder"
+                    text: qsTr("No, don't change folder")
                     visible: scanDialog.allowRevert
                     onClicked: {
                         if (scanDialog.previousDir !== "")
@@ -235,12 +252,12 @@ ApplicationWindow {
                 }
 
                 Button {
-                    text: "No, don't scan"
+                    text: qsTr("No, don't scan")
                     onClicked: scanDialog.close()
                 }
 
                 Button {
-                    text: "Yes, scan"
+                    text: qsTr("Yes, scan")
                     onClicked: {
                         scanDialog.close()
                         scanRunning = true
@@ -276,7 +293,7 @@ ApplicationWindow {
             spacing: 12
 
             Text {
-                text: "Scan complete"
+                text: qsTr("Scan complete")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontLg
                 font.bold: true
@@ -297,7 +314,7 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
 
                 Button {
-                    text: "OK"
+                    text: qsTr("OK")
                     onClicked: scanResultDialog.close()
                 }
             }
@@ -317,11 +334,11 @@ ApplicationWindow {
         function onScanFinished(count) {
             scanRunning = false
             if (count < 0)
-                scanResultDialog.show("The folder scan failed. See the Log tab for details.")
+                scanResultDialog.show(qsTr("The folder scan failed. See the Log tab for details."))
             else if (count === 0)
-                scanResultDialog.show("No new addons were found in the folder.")
+                scanResultDialog.show(qsTr("No new addons were found in the folder."))
             else
-                scanResultDialog.show(count + (count === 1 ? " addon was" : " addons were") + " found and added to your list.")
+                scanResultDialog.show(qsTr("%n addon(s) were found and added to your list.", "", count))
         }
         function onTargetDirectoryChanged(path) { targetDirField.text = path }
         function onTargetDirectoryPicked(oldPath, newPath) { scanDialog.openFor(oldPath, true) }

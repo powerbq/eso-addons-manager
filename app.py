@@ -12,7 +12,9 @@ import zipfile
 import bbcode
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import QLocale
 from PyQt6.QtCore import QObject
+from PyQt6.QtCore import QTranslator
 from PyQt6.QtCore import QUrl
 from PyQt6.QtQml import QQmlApplicationEngine
 from PyQt6.QtWebEngineQuick import QtWebEngineQuick
@@ -53,6 +55,34 @@ def get_sync_on_launch():
 
 def set_sync_on_launch(value):
     c['General']['SyncOnLaunch'] = 'true' if value else 'false'
+
+
+LANGUAGES = (
+    ('en', 'English'),
+    ('fr', 'Français'),
+    ('de', 'Deutsch'),
+    ('es', 'Español'),
+    ('ru', 'Русский'),
+    ('uk', 'Українська'),
+)
+SUPPORTED_LANGUAGES = tuple(code for code, _ in LANGUAGES)
+
+
+def get_language():
+    return c.get('General', 'Language', fallback='')
+
+
+def set_language(value):
+    c['General']['Language'] = value or ''
+
+
+def resolve_language(code):
+    if code in SUPPORTED_LANGUAGES:
+        return code
+    system = QLocale.system().name().split('_')[0]
+    if system in SUPPORTED_LANGUAGES:
+        return system
+    return 'en'
 
 
 def get_exclusions():
@@ -398,7 +428,7 @@ def cleanup():
     for section in c.sections():
         if section == 'General':
             for option in list(c[section].keys()):
-                if option not in {'TargetDirectory', 'SyncOnLaunch'}:
+                if option not in {'TargetDirectory', 'SyncOnLaunch', 'Language'}:
                     c.remove_option(section, option)
 
         elif section == 'Exclusions':
@@ -539,6 +569,46 @@ class QmlBackend(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._app = None
+        self._engine = None
+        self._i18n_dir = None
+        self._translator = QTranslator()
+
+    def setupI18n(self, app, engine, i18n_dir):
+        self._app = app
+        self._engine = engine
+        self._i18n_dir = i18n_dir
+        self._applyLanguage(get_language())
+
+    def _applyLanguage(self, code):
+        if self._app is None:
+            return
+
+        self._app.removeTranslator(self._translator)
+
+        code = resolve_language(code)
+
+        if code != 'en' and self._i18n_dir:
+            path = os.path.join(self._i18n_dir, 'app_%s.qm' % code)
+            if os.path.isfile(path) and self._translator.load(path):
+                self._app.installTranslator(self._translator)
+
+        if self._engine is not None:
+            self._engine.retranslate()
+
+    @pyqtSlot(result='QVariantList')
+    def getLanguages(self):
+        return [{'code': code, 'name': name} for code, name in LANGUAGES]
+
+    @pyqtSlot(result=str)
+    def getLanguage(self):
+        return resolve_language(get_language())
+
+    @pyqtSlot(str)
+    def setLanguage(self, code):
+        set_language(code)
+        save()
+        self._applyLanguage(code)
 
     def _refreshAddonList(self):
         self.logMessage.emit('Refreshing addon list...')
@@ -756,6 +826,7 @@ if __name__ == '__main__':
     qt_app = QApplication(sys.argv)
     backend = QmlBackend()
     engine = QQmlApplicationEngine()
+    backend.setupI18n(qt_app, engine, os.path.join(_bundle_directory, 'translations'))
     engine.rootContext().setContextProperty('backend', backend)
     engine.load(QUrl.fromLocalFile(os.path.join(_bundle_directory, 'qml/main.qml')))
     if not engine.rootObjects():

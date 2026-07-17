@@ -22,7 +22,7 @@ SplitView {
                 Layout.margins: 8
                 implicitHeight: 36
                 font.pixelSize: 15
-                placeholderText: "Search by name or author..."
+                placeholderText: qsTr("Search by name or author...")
                 leftPadding: 12
                 onTextChanged: filterList(text)
                 color: Theme.inputText
@@ -46,13 +46,13 @@ SplitView {
                     spacing: 4
 
                     Text {
-                        text: "Order by:"
+                        text: qsTr("Order by:")
                         font.pixelSize: Theme.fontSm
                         color: Theme.textMuted
                     }
 
                     Repeater {
-                        model: ["Name", "Author", "Total DL", "Trending", "Favourites", "Updated"]
+                        model: [qsTr("Name"), qsTr("Author"), qsTr("Total DL"), qsTr("Trending"), qsTr("Favourites"), qsTr("Updated")]
                         delegate: ChipButton {
                             Layout.fillWidth: true
                             text: modelData
@@ -80,14 +80,14 @@ SplitView {
                     spacing: 4
 
                     Text {
-                        text: "Filter:"
+                        text: qsTr("Filter:")
                         font.pixelSize: Theme.fontSm
                         color: Theme.textMuted
                     }
 
                     ChipButton {
                         Layout.fillWidth: true
-                        text: "Installed"
+                        text: qsTr("Installed")
                         active: filterBar.filterInstalled
                         onClicked: {
                             filterBar.filterInstalled = !filterBar.filterInstalled
@@ -97,7 +97,7 @@ SplitView {
 
                     ChipButton {
                         Layout.fillWidth: true
-                        text: "My Favourites"
+                        text: qsTr("My Favourites")
                         active: filterBar.filterFavourites
                         onClicked: {
                             filterBar.filterFavourites = !filterBar.filterFavourites
@@ -197,16 +197,17 @@ SplitView {
                             elide: Text.ElideRight
                             width: parent.width
                             text: {
-                                var stats = root.fmtNum(model.downloads) + " downloads"
-                                    + " (" + root.fmtNum(model.monthlyDownloads) + " this month)"
-                                    + ", " + root.fmtNum(model.favorites) + " in favorites"
-                                return model.author ? "By " + model.author + "  ·  " + stats : stats
+                                var stats = qsTr("%1 downloads (%2 this month), %3 in favorites")
+                                    .arg(root.fmtNum(model.downloads))
+                                    .arg(root.fmtNum(model.monthlyDownloads))
+                                    .arg(root.fmtNum(model.favorites))
+                                return model.author ? qsTr("By %1  ·  %2").arg(model.author).arg(stats) : stats
                             }
                         }
                         Text {
                             font.pixelSize: Theme.fontSm
                             color: Theme.textSecondary
-                            text: "Updated " + Qt.formatDate(new Date(model.date), "d MMM yyyy")
+                            text: qsTr("Updated %1").arg(new Date(model.date).toLocaleDateString(Qt.locale(backend ? backend.getLanguage() : ""), "d MMM yyyy"))
                         }
                     }
 
@@ -230,7 +231,7 @@ SplitView {
                             anchors.fill: parent
                             visible: root.pendingUID !== model.uid
                             enabled: !root.syncing
-                            text: root.installedUIDs[model.uid] ? "Remove" : "Install"
+                            text: root.installedUIDs[model.uid] ? qsTr("Remove") : qsTr("Install")
                             onClicked: {
                                 root.pendingUID = model.uid
                                 if (root.installedUIDs[model.uid])
@@ -286,7 +287,7 @@ SplitView {
                     spacing: 4
 
                     Repeater {
-                        model: ["ESO UI Site", "Description"]
+                        model: [qsTr("ESO UI Site"), qsTr("Description")]
                         delegate: ChipButton {
                             Layout.fillWidth: true
                             text: modelData
@@ -303,7 +304,7 @@ SplitView {
 
                 Text {
                     anchors.centerIn: parent
-                    text: "Select an addon to see details"
+                    text: qsTr("Select an addon to see details")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontLg
                     visible: root.currentInfoURL === ""
@@ -318,7 +319,7 @@ SplitView {
 
                     Text {
                         anchors.centerIn: parent
-                        text: "What you see below is just a web view of esoui.com, provided for convenient browsing of addon descriptions and screenshots."
+                        text: qsTr("What you see below is just a web view of esoui.com, provided for convenient browsing of addon descriptions and screenshots.")
                         color: Theme.textMuted
                         font.pixelSize: 11
                         elide: Text.ElideRight

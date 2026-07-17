@@ -28,6 +28,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
+      - name: Compile translations
+        shell: bash
+        run: ./compile_translations.sh
       - run: pyinstaller app.spec
       - name: Package + checksum
         shell: bash

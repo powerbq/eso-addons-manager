@@ -15,7 +15,7 @@ Item {
             color: Theme.textLog
             background: Rectangle { color: Theme.bg }
             padding: 12
-            placeholderText: "Log is empty..."
+            placeholderText: qsTr("Log is empty...")
         }
     }
 
