@@ -1,3 +1,12 @@
+[project]
+name = 'eso-addons-manager'
+version = '0.1.0'
+description = 'Addon manager for The Elder Scrolls Online'
+readme = 'README.md'
+license = { text = 'MIT' }
+authors = [{ name = 'powerbq' }]
+requires-python = '>=3.10'
+
 # https://docs.astral.sh/ruff/configuration/
 [tool.ruff]
 line-length = 120

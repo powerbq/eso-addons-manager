@@ -1,5 +1,8 @@
 #!/usr/bin/python3
 
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 powerbq
+
 import configparser
 import json
 import os
