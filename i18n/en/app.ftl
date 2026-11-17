@@ -1,0 +1,106 @@
+tab-catalogue = Catalogue
+tab-libraries = Libraries
+tab-exclusions = Exclusions
+tab-log = Log
+
+menu-title = Menu
+addons-folder = AddOns folder
+menu-language = Language
+menu-choose-folder = Change
+scan-folder = Scan
+menu-open-folder = Open
+log-to-file = Write to file
+log-open-folder = Open folder
+log-clear = Delete logs
+log-clear-title = Delete log files?
+log-clear-all-disable = All and stop writing
+log-clear-all = All log files
+log-clear-others = Previous runs
+sync-on-launch = Sync on launch
+sync = Sync
+
+loading = Loading…
+loading-catalogue = Loading catalogue…
+catalogue-failed = Cannot load the catalogue: { $error }
+retry = Retry
+
+search-placeholder = Search by name, author or folder…
+addon-count =
+    { $count ->
+        [one] { $count } addon
+       *[other] { $count } addons
+    }
+filter = Filter
+filter-installed = Installed
+filter-favourites = Favourites
+sort-by = Sort by
+sort-name = Name
+sort-author = Author
+sort-updated = Last updated
+sort-downloads = Total downloads
+sort-monthly-downloads = Monthly downloads
+sort-favourites = Favourites
+
+addon-version = version { $version }
+add-favourite = Add to favourites
+remove-favourite = Remove from favourites
+install = Install
+remove = Remove
+open-page = Open on esoui.com
+select-addon = Select an addon to see its description
+description-failed = Cannot load the description: { $error }
+description-render-failed = Cannot display the description
+tab-description = Description
+tab-changelog = Changelog
+screenshot-failed = Cannot load the screenshot
+previous = PREV
+next = NEXT
+
+libraries-none = No saved choices yet. When several addons provide the same folder, your choice appears here.
+reset = Reset
+
+exclusions-custom = Custom exclusions — one regex per line
+exclusions-automatic = Automatic (from installed addons)
+exclusions-automatic-none = None: no installed addon needs them.
+clear = Clear
+save = Save
+
+ok = OK
+cancel = Cancel
+continue = Continue
+open-link-question = Open this link in your browser?
+open-link-confirm = Open
+providers-title = Choose addons
+providers-note = Several addons provide these folders. Choose which one to use for each folder.
+candidate-folders = Folders: { $folders }
+scan-prompt-title = Scan folder for addons?
+scan-prompt-question = Do you want to analyse this folder for installed addons and add them to your list?
+scan-prompt-warning = Warning: detection may be inaccurate. Back up the folder first — its contents can be overwritten on the next sync.
+scan-keep-folder = No, don't change folder
+scan-skip = No, don't scan
+scan-confirm = Yes, scan
+scan-complete = Scan complete
+scan-failed = Scan failed
+scan-added = Added addons
+scan-unrecognised = Unrecognised folders
+scan-nothing-new = No new addons were found in the folder.
+catalogue-unavailable = The catalogue is not available.
+catalogue-not-loaded = The catalogue is not loaded yet.
+
+sync-complete = Sync complete
+sync-failed = Sync failed
+report-problems = Problems
+sync-installed-addons = Installed addons
+sync-updated-addons = Updated addons
+sync-removed-addons = Removed addons
+sync-installed-dependencies = Installed dependencies
+sync-updated-dependencies = Updated dependencies
+sync-removed-dependencies = Removed dependencies
+sync-downloaded-again = { $version } (downloaded again)
+sync-not-applied = The AddOns folder was not changed because some downloads failed.
+sync-download-failed = Download failed: { $name }: { $error }
+sync-missing-dependency = Missing dependency: { $directory }
+sync-unknown-addon = Not in the catalogue: { $name } ({ $uid })
+sync-up-to-date = Everything is up to date.
+
+log-empty = Log is empty…

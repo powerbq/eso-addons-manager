@@ -1,0 +1,55 @@
+--- a/build.rs
++++ b/build.rs
+@@ -27,9 +27,14 @@ fn build_vendored(manifest_dir: &Path, out_dir: &Path, csrc_dir: &Path) {
+     let gumbo_private_include = gumbo_include.join("gumbo");
+     let litehtml_src = vendor_dir.join("src");
+     let litehtml_include = vendor_dir.join("include");
++    let msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+ 
+     // Gumbo (C99)
+-    cc::Build::new()
++    let mut gumbo = cc::Build::new();
++    if msvc {
++        gumbo.include(gumbo_src.join("visualc/include"));
++    }
++    gumbo
+         .cargo_metadata(false)
+         .files(
+             [
+@@ -55,7 +60,11 @@ fn build_vendored(manifest_dir: &Path, out_dir: &Path, csrc_dir: &Path) {
+         .compile("gumbo");
+ 
+     // litehtml (C++17)
+-    cc::Build::new()
++    let mut litehtml = cc::Build::new();
++    if msvc {
++        litehtml.flag("/utf-8").flag("/permissive-");
++    }
++    litehtml
+         .cargo_metadata(false)
+         .cpp(true)
+         .files(
+@@ -148,10 +157,10 @@ fn build_vendored(manifest_dir: &Path, out_dir: &Path, csrc_dir: &Path) {
+     println!("cargo:rustc-link-lib=static=litehtml_c");
+     println!("cargo:rustc-link-lib=static=litehtml");
+     println!("cargo:rustc-link-lib=static=gumbo");
+-    // Link C++ standard library
++    // Link C++ standard library (MSVC links its own runtime automatically)
+     if cfg!(target_os = "macos") {
+         println!("cargo:rustc-link-lib=c++");
+-    } else {
++    } else if !msvc {
+         println!("cargo:rustc-link-lib=stdc++");
+     }
+ 
+--- a/csrc/litehtml_c.cpp
++++ b/csrc/litehtml_c.cpp
+@@ -1304,7 +1304,7 @@ void lh_document_add_stylesheet(lh_document_t* doc,
+             mq->add(mq_list);
+         }
+         stylesheet.parse_css_stylesheet(
+-            css_text,
++            litehtml::string(css_text),
+             baseurl ? baseurl : "",
+             internal->doc,
+             mq);

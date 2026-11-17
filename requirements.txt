@@ -1,6 +1,0 @@
-pyinstaller
-pyside6
-requests
-pyqt6
-pyqt6-webengine
-bbcode

@@ -1,10 +1,6 @@
-/build/work/
-/build/dist/
-/__pycache__/
 /.idea/
-/.venv/
 /addons/
 /custom/
+/samples/
 /target/
 /app.ini
-/translations/*.qm

@@ -1,11 +1,25 @@
 @echo off
+setlocal
 
-call "%~dp0compile_translations.cmd" || exit /b 1
+cd /d "%~dp0"
 
-if not exist build mkdir build
+set ASSET=eso-addons-manager-windows-amd64.zip
 
-cd build
+powershell -NoProfile -ExecutionPolicy Bypass -File patches\cargo-patched.ps1 build --profile packaging || goto :failed
 
-pyinstaller --clean --distpath dist --workpath work ..\app.spec
+if exist target\dist rmdir /s /q target\dist
+mkdir target\dist
 
-pause
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ErrorActionPreference = 'Stop';" ^
+    "Compress-Archive -Path 'target\packaging\app.exe' -DestinationPath 'target\dist\%ASSET%';" ^
+    "$hash = (Get-FileHash -Algorithm SHA256 'target\dist\%ASSET%').Hash.ToLowerInvariant();" ^
+    "[IO.File]::WriteAllText('target\dist\%ASSET%.sha256', $hash)" || goto :failed
+
+echo target\dist\%ASSET%
+if not defined CI pause
+exit /b 0
+
+:failed
+if not defined CI pause
+exit /b 1
