@@ -3,19 +3,23 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>app</string>
+	<string>ESO Addons Manager</string>
 	<key>CFBundleExecutable</key>
 	<string>app</string>
+	<key>CFBundleIconFile</key>
+	<string>eso-addons-manager</string>
 	<key>CFBundleIdentifier</key>
-	<string>app</string>
+	<string>io.github.powerbq.eso-addons-manager</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>app</string>
+	<string>ESO Addons Manager</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

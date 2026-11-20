@@ -2,7 +2,7 @@
 members = ["core"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.2"
 edition = "2024"
 authors = ["powerbq"]
 license = "MIT"
@@ -24,6 +24,7 @@ name = "app"
 path = "src/main.rs"
 
 [dependencies]
+directories = "6.0.0"
 eso_addons_manager_core.workspace = true
 i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
 i18n-embed-fl = "0.10"
@@ -52,3 +53,27 @@ codegen-units = 1
 [build-dependencies]
 allsorts = "0.17"
 lucide-icons = "1.73"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[package.metadata.deb]
+section = "games"
+priority = "optional"
+depends = "$auto"
+extended-description = "Browse, install and update add-ons for The Elder Scrolls Online."
+assets = [
+    ["target/packaging/app", "usr/bin/eso-addons-manager", "755"],
+    ["assets/linux/eso-addons-manager.desktop", "usr/share/applications/eso-addons-manager.desktop", "644"],
+    ["icons/eso-addons-manager.png", "usr/share/icons/hicolor/256x256/apps/eso-addons-manager.png", "644"],
+    ["LICENSE", "usr/share/doc/eso-addons-manager/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+auto-req = "builtin"
+assets = [
+    { source = "target/packaging/app", dest = "/usr/bin/eso-addons-manager", mode = "755" },
+    { source = "assets/linux/eso-addons-manager.desktop", dest = "/usr/share/applications/eso-addons-manager.desktop", mode = "644" },
+    { source = "icons/eso-addons-manager.png", dest = "/usr/share/icons/hicolor/256x256/apps/eso-addons-manager.png", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/eso-addons-manager/LICENSE", mode = "644" },
+]

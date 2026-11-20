@@ -2,6 +2,7 @@ pub mod api;
 pub mod bbcode;
 pub mod cache;
 pub mod catalogue;
+pub mod clean;
 pub mod config;
 pub mod deps;
 pub mod exclusions;

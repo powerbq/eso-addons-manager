@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ESO Addons Manager
+Comment=Manage Elder Scrolls Online add-ons
+Exec=eso-addons-manager
+Icon=eso-addons-manager
+Categories=Game;
+Terminal=false

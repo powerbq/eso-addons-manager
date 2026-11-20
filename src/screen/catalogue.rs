@@ -163,6 +163,7 @@ pub enum Action {
 #[derive(Clone, Copy)]
 pub struct Activity<'a> {
     pub busy: bool,
+    pub can_install: bool,
     pub installing: Option<&'a str>,
     pub spinner_angle: f32,
 }
@@ -707,7 +708,10 @@ impl Loaded {
                 )
                 .style(button::text)
                 .padding(button::DEFAULT_PADDING.top(0).bottom(0))
-                .on_press_maybe((!context.activity.busy).then_some(Message::InstallToggled(index))),
+                .on_press_maybe(
+                    (!context.activity.busy && context.activity.can_install)
+                        .then_some(Message::InstallToggled(index)),
+                ),
                 text(if installed {
                     fl!("remove")
                 } else {

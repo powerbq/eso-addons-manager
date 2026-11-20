@@ -9,8 +9,6 @@ use iced::futures::channel::mpsc;
 use crate::i18n::fl;
 use crate::report::{Line, Report};
 
-pub const CUSTOM_DIRECTORY: &str = "custom";
-
 #[derive(Debug, Clone)]
 pub enum Update {
     Refreshed(Catalogue),
@@ -22,6 +20,8 @@ pub fn start(
     client: api::Client,
     catalogue: Catalogue,
     config: Config,
+    cache_dir: PathBuf,
+    custom_dir: PathBuf,
     refresh: bool,
 ) -> Task<Update> {
     let (sender, receiver) = mpsc::unbounded();
@@ -48,9 +48,17 @@ pub fn start(
         let progress = sender.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            run(&handle, &client, &catalogue, &config, |event| {
-                let _ = progress.unbounded_send(Update::Progress(event));
-            })
+            run(
+                &handle,
+                &client,
+                &catalogue,
+                &config,
+                &cache_dir,
+                &custom_dir,
+                |event| {
+                    let _ = progress.unbounded_send(Update::Progress(event));
+                },
+            )
         })
         .await
         .map_err(|error| error.to_string())
@@ -300,15 +308,17 @@ fn run(
     client: &api::Client,
     catalogue: &Catalogue,
     config: &Config,
+    cache_dir: &Path,
+    custom_dir: &Path,
     mut on_event: impl FnMut(Event),
 ) -> Result<Plan, String> {
     let target = PathBuf::from(&config.target_directory);
-    let cache_directory = Path::new(cache::DIRECTORY);
+    let addons = cache_dir.join(cache::DIRECTORY);
     let input = sync::Input {
         catalogue,
         config,
-        cache: cache_directory,
-        custom: Path::new(CUSTOM_DIRECTORY),
+        cache: &addons,
+        custom: custom_dir,
         target: &target,
     };
 
@@ -322,7 +332,7 @@ fn run(
     if plan.is_applicable() {
         sync::apply(&plan, &target, &mut on_event).map_err(|error| error.to_string())?;
 
-        if let Err(error) = sync::clean_cache(&plan, cache_directory) {
+        if let Err(error) = sync::clean_cache(&plan, &addons) {
             tracing::warn!("cannot clean the download cache: {error}");
         }
     }

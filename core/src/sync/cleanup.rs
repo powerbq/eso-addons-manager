@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -38,24 +37,7 @@ pub fn clean_config(plan: &Plan, catalogue: &Catalogue, config: &mut Config) {
 }
 
 pub fn clean_cache(plan: &Plan, cache: &Path) -> io::Result<()> {
-    let entries = match fs::read_dir(cache) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-
-    for entry in entries {
-        let path = entry?.path();
-        if plan.sources.contains(&path) {
-            continue;
-        }
-
-        if path.is_dir() {
-            fs::remove_dir_all(&path)?;
-        } else {
-            fs::remove_file(&path)?;
-        }
-    }
-
-    Ok(())
+    crate::clean::retain(cache, |path| {
+        plan.sources.iter().any(|source| source.as_path() == path)
+    })
 }

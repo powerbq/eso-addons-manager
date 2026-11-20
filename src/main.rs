@@ -7,7 +7,9 @@ mod i18n;
 mod icon;
 mod log;
 mod menu;
+mod migrate;
 mod modal;
+mod paths;
 mod report;
 mod screen;
 mod sync;
@@ -19,8 +21,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 
+use eso_addons_manager_core::clean as core_clean;
 use eso_addons_manager_core::sync as core_sync;
-use eso_addons_manager_core::{Config, api, config, scan};
+use eso_addons_manager_core::{Config, api, cache, scan};
 use iced::futures::StreamExt;
 use iced::futures::channel::mpsc;
 use iced::theme::Palette;
@@ -87,14 +90,36 @@ fn theme() -> Theme {
 }
 
 pub fn main() -> iced::Result {
-    let (receiver, file_log) = log::setup();
+    let paths = paths::Paths::resolve();
+    let (receiver, file_log) = log::setup(paths.log_dir.clone());
+    paths.ensure();
+
+    let conflict = match migrate::run(&paths) {
+        migrate::Outcome::Nothing => None,
+        migrate::Outcome::Migrated => {
+            tracing::info!("migration complete");
+            None
+        }
+        migrate::Outcome::Conflict(conflict) => Some(conflict),
+    };
+
+    core_clean::retain(&paths.cache_dir, |path| {
+        path.file_name().and_then(|name| name.to_str()) == Some(cache::DIRECTORY)
+    })
+    .unwrap_or_else(|error| tracing::warn!("cannot clean the cache directory: {error}"));
+    core_clean::retain(&paths.log_dir, log::is_log)
+        .unwrap_or_else(|error| tracing::warn!("cannot clean the log directory: {error}"));
+
     let records = Mutex::new(Some(receiver));
+    let conflict = Mutex::new(conflict);
 
     iced::application(
         move || {
             Manager::new(
                 records.lock().ok().and_then(|mut records| records.take()),
                 file_log.clone(),
+                paths.clone(),
+                conflict.lock().ok().and_then(|mut conflict| conflict.take()),
             )
         },
         Manager::update,
@@ -137,6 +162,7 @@ struct Manager {
     exclusions: exclusions::Exclusions,
     log: Log,
     file_log: log::FileLog,
+    paths: paths::Paths,
     language: i18n::Language,
     scale: f32,
 }
@@ -180,6 +206,8 @@ enum Dialog {
         choice: ClearChoice,
         writing: bool,
     },
+    Migrate(migrate::Conflict),
+    ChooseFolder { configured: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -202,6 +230,7 @@ enum AfterChoice {
 #[derive(Debug, Clone)]
 enum Message {
     Catalogue(catalogue::Message),
+    ChangeFolder,
     ChooseFolder,
     OpenFolder,
     FolderChosen(Option<PathBuf>),
@@ -217,6 +246,9 @@ enum Message {
     LanguageSelected(i18n::Language),
     LogToFileToggled,
     OpenLogsFolder,
+    OpenConfigFolder,
+    OpenCacheFolder,
+    OpenCustomFolder,
     ClearLogsRequested,
     ClearLogsChoice(ClearChoice),
     ClearLogsConfirmed,
@@ -237,6 +269,8 @@ enum Message {
     OpenConfirmed,
     OpenCancelled,
     ProvidersConfirmed,
+    MigrateChoice(bool),
+    MigrateOpenFolders,
     Logged(Vec<String>),
     Log(crate::screen::log::Message),
     WindowEvent(window::Id, window::Event),
@@ -247,12 +281,14 @@ impl Manager {
     fn new(
         records: Option<mpsc::UnboundedReceiver<String>>,
         file_log: log::FileLog,
+        paths: paths::Paths,
+        conflict: Option<migrate::Conflict>,
     ) -> (Self, Task<Message>) {
         let logging = records.map_or_else(Task::none, |records| {
             Task::run(records.ready_chunks(LOG_CHUNK), Message::Logged)
         });
 
-        let config = match Config::load(Path::new(config::FILE)) {
+        let config = match Config::load(&paths.config_file) {
             Ok(config) => {
                 file_log.configure(config.log_to_file);
                 config
@@ -283,6 +319,7 @@ impl Manager {
                     exclusions: exclusions::Exclusions::new(&Config::default()),
                     log: Log::default(),
                     file_log,
+                    paths,
                     language,
                     scale: 1.0,
                 };
@@ -305,9 +342,13 @@ impl Manager {
 
         let language = i18n::select(&config.language);
 
+        let folder = if config.target_directory.trim().is_empty() {
+            "(not set)".to_owned()
+        } else {
+            format!("{:?}", config.target_directory)
+        };
         tracing::info!(
-            "settings: AddOns folder {:?}, {} installed, {} favourites, {} exclusions, {} library choices, language {}, sync on launch {}",
-            config.target_directory,
+            "settings: AddOns folder {folder}, {} installed, {} favourites, {} exclusions, {} library choices, language {}, sync on launch {}",
             config.addons.len(),
             config.favourites.len(),
             config.exclusions.len(),
@@ -316,7 +357,7 @@ impl Manager {
             config.sync_on_launch
         );
 
-        let manager = Self {
+        let mut manager = Self {
             language,
             sync_on_launch_pending: config.sync_on_launch,
             synced_addons: config.addons.keys().cloned().collect(),
@@ -330,6 +371,7 @@ impl Manager {
             exclusions: exclusions::Exclusions::new(&config),
             log: Log::default(),
             file_log,
+            paths,
             config,
             screen,
             dialog: None,
@@ -340,6 +382,18 @@ impl Manager {
             sync_since: None,
             scale: 1.0,
         };
+
+        if let Some(conflict) = conflict {
+            tracing::warn!(
+                "migration conflict needs a choice: settings {}, {} custom file(s)",
+                conflict.config,
+                conflict.custom.len()
+            );
+            manager.sync_on_launch_pending = false;
+            manager.dialog = Some(Dialog::Migrate(conflict));
+        } else if manager.config.target_directory.trim().is_empty() {
+            manager.dialog = Some(Dialog::ChooseFolder { configured: false });
+        }
 
         (manager, Task::batch([logging, task]))
     }
@@ -373,7 +427,7 @@ impl Manager {
                         } else {
                             format!("remove requested: {name} ({uid})")
                         };
-                        save(&self.config, &reason);
+                        save(&self.config, &self.paths.config_file, &reason);
                         catalogue.refresh(&self.config);
                         self.start_sync(Some(Toggle { uid, previous }), true)
                     }
@@ -385,7 +439,7 @@ impl Manager {
                         } else {
                             format!("favourite removed: {name} ({uid})")
                         };
-                        save(&self.config, &reason);
+                        save(&self.config, &self.paths.config_file, &reason);
                         catalogue.refresh(&self.config);
                         Task::none()
                     }
@@ -395,8 +449,15 @@ impl Manager {
                     }
                 }
             }
+            Message::ChangeFolder => {
+                self.menu = None;
+                let configured = !self.config.target_directory.trim().is_empty();
+                self.dialog = Some(Dialog::ChooseFolder { configured });
+                Task::none()
+            }
             Message::ChooseFolder => {
                 self.menu = None;
+                self.dialog = None;
                 let current = std::path::absolute(&self.config.target_directory)
                     .unwrap_or_else(|_| PathBuf::from(&self.config.target_directory));
 
@@ -423,6 +484,7 @@ impl Manager {
                 let previous_folder = std::mem::replace(&mut self.config.target_directory, folder);
                 save(
                     &self.config,
+                    &self.paths.config_file,
                     &format!("AddOns folder set to {}", self.config.target_directory),
                 );
 
@@ -447,6 +509,7 @@ impl Manager {
                     self.config.target_directory = previous_folder;
                     save(
                         &self.config,
+                        &self.paths.config_file,
                         &format!("AddOns folder restored to {}", self.config.target_directory),
                     );
                 }
@@ -491,12 +554,13 @@ impl Manager {
                 self.dialog = None;
                 self.activity = Some(Activity::Scan);
                 let target = PathBuf::from(&self.config.target_directory);
+                let custom_dir = self.paths.custom_dir.clone();
 
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             let folders = scan::folders(&target)?;
-                            let custom = scan::custom_folders(Path::new(sync::CUSTOM_DIRECTORY));
+                            let custom = scan::custom_folders(&custom_dir);
                             Ok::<_, std::io::Error>((folders, custom))
                         })
                         .await
@@ -521,6 +585,7 @@ impl Manager {
                 self.config.language = language.code.to_owned();
                 save(
                     &self.config,
+                    &self.paths.config_file,
                     &format!("language changed to {}", language.code),
                 );
                 self.language = i18n::select(language.code);
@@ -531,19 +596,43 @@ impl Manager {
                 self.config.log_to_file = enabled;
                 if enabled {
                     self.file_log.set_enabled(true, &self.log.text());
-                    save(&self.config, "file logging enabled");
+                    save(&self.config, &self.paths.config_file, "file logging enabled");
                 } else {
-                    save(&self.config, "file logging disabled");
+                    save(&self.config, &self.paths.config_file, "file logging disabled");
                     self.file_log.set_enabled(false, "");
                 }
                 Task::none()
             }
             Message::OpenLogsFolder => {
                 self.menu = None;
-                let folder = std::path::absolute(log::DIRECTORY)
-                    .unwrap_or_else(|_| PathBuf::from(log::DIRECTORY));
-                let _ = std::fs::create_dir_all(&folder);
-                widget::open_folder(&folder);
+                let folder = &self.paths.log_dir;
+                let _ = std::fs::create_dir_all(folder);
+                widget::open_folder(folder);
+                Task::none()
+            }
+            Message::OpenConfigFolder => {
+                self.menu = None;
+                let folder = self
+                    .paths
+                    .config_file
+                    .parent()
+                    .unwrap_or(&self.paths.config_file);
+                let _ = std::fs::create_dir_all(folder);
+                widget::open_folder(folder);
+                Task::none()
+            }
+            Message::OpenCacheFolder => {
+                self.menu = None;
+                let folder = &self.paths.cache_dir;
+                let _ = std::fs::create_dir_all(folder);
+                widget::open_folder(folder);
+                Task::none()
+            }
+            Message::OpenCustomFolder => {
+                self.menu = None;
+                let folder = &self.paths.custom_dir;
+                let _ = std::fs::create_dir_all(folder);
+                widget::open_folder(folder);
                 Task::none()
             }
             Message::ClearLogsRequested => {
@@ -571,7 +660,7 @@ impl Manager {
                         ClearChoice::AllDisable => {
                             self.file_log.clear_all_and_disable();
                             self.config.log_to_file = false;
-                            save(&self.config, "log files deleted, file logging disabled");
+                            save(&self.config, &self.paths.config_file, "log files deleted, file logging disabled");
                         }
                         ClearChoice::Others => {
                             self.file_log.clear_others();
@@ -583,7 +672,7 @@ impl Manager {
             }
             Message::SyncOnLaunchToggled(enabled) => {
                 self.config.sync_on_launch = enabled;
-                save(&self.config, &format!("sync on launch set to {enabled}"));
+                save(&self.config, &self.paths.config_file, &format!("sync on launch set to {enabled}"));
                 Task::none()
             }
             Message::SectionToggled(index) => {
@@ -602,13 +691,13 @@ impl Manager {
             Message::Libraries(libraries::Message::Selected { directory, uid }) => {
                 let reason = format!("choice of {directory} selected: {uid}");
                 self.config.selected_libraries.insert(directory, uid);
-                save(&self.config, &reason);
+                save(&self.config, &self.paths.config_file, &reason);
                 Task::none()
             }
             Message::Libraries(libraries::Message::Reset(directory)) => {
                 let reason = format!("choice of {directory} reset");
                 self.config.selected_libraries.remove(&directory);
-                save(&self.config, &reason);
+                save(&self.config, &self.paths.config_file, &reason);
                 Task::none()
             }
             Message::Libraries(libraries::Message::OpenPage(url)) | Message::OpenPage(url) => {
@@ -629,7 +718,7 @@ impl Manager {
                 if let exclusions::Action::Save(patterns) = self.exclusions.update(message) {
                     let reason = format!("exclusions updated: {} patterns", patterns.len());
                     self.config.exclusions = patterns;
-                    save(&self.config, &reason);
+                    save(&self.config, &self.paths.config_file, &reason);
                 }
                 Task::none()
             }
@@ -662,7 +751,7 @@ impl Manager {
                     AfterChoice::Sync { toggle } => {
                         let reason = format!("{} provider choices saved", chosen.len());
                         self.config.selected_libraries.extend(chosen);
-                        save(&self.config, &reason);
+                        save(&self.config, &self.paths.config_file, &reason);
                         self.start_sync(toggle, false)
                     }
                     AfterChoice::Scan { folders, custom } => {
@@ -671,6 +760,35 @@ impl Manager {
                         Task::none()
                     }
                 }
+            }
+            Message::MigrateChoice(keep_old) => {
+                if let Some(Dialog::Migrate(conflict)) = self.dialog.take() {
+                    migrate::resolve(&conflict, keep_old, &self.paths);
+                    tracing::info!(
+                        "migration conflict resolved: kept {}",
+                        if keep_old { "the old folder" } else { "the profile" }
+                    );
+                }
+                match Config::load(&self.paths.config_file) {
+                    Ok(config) => {
+                        self.language = i18n::select(&config.language);
+                        self.exclusions = exclusions::Exclusions::new(&config);
+                        self.synced_addons = config.addons.keys().cloned().collect();
+                        self.config = config;
+                    }
+                    Err(error) => {
+                        tracing::error!("cannot reload settings after migration: {error}");
+                    }
+                }
+                Task::none()
+            }
+            Message::MigrateOpenFolders => {
+                if let Some(Dialog::Migrate(conflict)) = &self.dialog {
+                    for folder in &conflict.folders {
+                        widget::open_folder(folder);
+                    }
+                }
+                Task::none()
             }
             Message::Logged(records) => {
                 self.log.push(records);
@@ -754,6 +872,10 @@ impl Manager {
     }
 
     fn start_sync(&mut self, toggle: Option<Toggle>, refresh: bool) -> Task<Message> {
+        if self.config.target_directory.trim().is_empty() {
+            tracing::warn!("sync skipped: no AddOns folder selected");
+            return Task::none();
+        }
         let Screen::Catalogue(screen) = &self.screen else {
             return Task::none();
         };
@@ -767,6 +889,8 @@ impl Manager {
             screen.client().clone(),
             catalogue.clone(),
             self.config.clone(),
+            self.paths.cache_dir.clone(),
+            self.paths.custom_dir.clone(),
             refresh,
         )
         .map(Message::Sync)
@@ -795,6 +919,7 @@ impl Manager {
         };
         save(
             &self.config,
+            &self.paths.config_file,
             "toggle undone after cancelled provider choice",
         );
         if let Screen::Catalogue(screen) = &mut self.screen {
@@ -820,7 +945,7 @@ impl Manager {
             core_sync::clean_config(plan, catalogue, &mut self.config);
             self.synced_addons = self.config.addons.keys().cloned().collect();
         }
-        save(&self.config, "config reconciled after sync");
+        save(&self.config, &self.paths.config_file, "config reconciled after sync");
         screen.refresh(&self.config);
         self.exclusions.refresh(&self.config);
 
@@ -929,7 +1054,7 @@ impl Manager {
             self.config
                 .addons
                 .extend(found.into_iter().map(|(uid, name, _)| (uid, name)));
-            save(&self.config, &reason);
+            save(&self.config, &self.paths.config_file, &reason);
             catalogue.refresh(&self.config);
             self.exclusions.refresh(&self.config);
         }
@@ -1086,23 +1211,46 @@ impl Manager {
 
     fn menu_overlay(&self, menu: Menu, catalogue_loaded: bool) -> Element<'_, Message> {
         let idle = self.activity.is_none();
+        let has_target = !self.config.target_directory.trim().is_empty();
         let entries = match menu {
             Menu::Settings => {
                 let mut entries = vec![
                     menu::Entry::Header(fl!("addons-folder")),
                     menu::Entry::Item(menu::Item {
                         label: fl!("menu-open-folder"),
-                        on_press: Some(Message::OpenFolder),
+                        on_press: has_target.then_some(Message::OpenFolder),
                         checked: false,
                     }),
                     menu::Entry::Item(menu::Item {
-                        label: fl!("menu-choose-folder"),
-                        on_press: idle.then_some(Message::ChooseFolder),
+                        label: if has_target {
+                            fl!("menu-choose-folder")
+                        } else {
+                            fl!("menu-select-folder")
+                        },
+                        on_press: idle.then_some(Message::ChangeFolder),
                         checked: false,
                     }),
                     menu::Entry::Item(menu::Item {
                         label: fl!("scan-folder"),
-                        on_press: (idle && catalogue_loaded).then_some(Message::ScanRequested),
+                        on_press: (idle && catalogue_loaded && has_target)
+                            .then_some(Message::ScanRequested),
+                        checked: false,
+                    }),
+                    menu::Entry::Separator,
+                    menu::Entry::Header(fl!("menu-app-folders")),
+                    menu::Entry::Item(menu::Item {
+                        label: fl!("menu-configuration"),
+                        on_press: Some(Message::OpenConfigFolder),
+                        checked: false,
+                    }),
+                    menu::Entry::Item(menu::Item {
+                        label: fl!("menu-custom"),
+                        on_press: Some(Message::OpenCustomFolder),
+                        checked: false,
+                    }),
+                    menu::Entry::Item(menu::Item {
+                        label: fl!("menu-cache"),
+                        on_press: Some(Message::OpenCacheFolder),
                         checked: false,
                     }),
                     menu::Entry::Separator,
@@ -1196,6 +1344,7 @@ impl Manager {
                     &self.config,
                     catalogue::Activity {
                         busy: self.activity.is_some(),
+                        can_install: !self.config.target_directory.trim().is_empty(),
                         installing: match &self.activity {
                             Some(Activity::Sync { toggle }) => {
                                 toggle.as_ref().map(|toggle| toggle.uid.as_str())
@@ -1225,7 +1374,8 @@ impl Manager {
 
     fn folder_bar(&self, catalogue_loaded: bool) -> Element<'_, Message> {
         let idle = self.activity.is_none();
-        let ready = catalogue_loaded && idle;
+        let has_target = !self.config.target_directory.trim().is_empty();
+        let ready = catalogue_loaded && idle && has_target;
         let busy_spinner = || -> Element<'_, Message> {
             container(spinner(self.spinner_angle(), BAR_SPINNER_SIZE))
                 .padding(BAR_BUTTON_PADDING)
@@ -1241,21 +1391,24 @@ impl Manager {
                 .into(),
         };
 
-        let full_path = std::path::absolute(&self.config.target_directory).map_or_else(
-            |_| self.config.target_directory.clone(),
-            |path| path.display().to_string(),
-        );
-        let folder = row![
-            secondary(fl!("addons-folder")),
+        let path: Element<'_, Message> = if has_target {
+            let full_path = std::path::absolute(&self.config.target_directory).map_or_else(
+                |_| self.config.target_directory.clone(),
+                |path| path.display().to_string(),
+            );
             tooltip(
                 text(&self.config.target_directory).wrapping(text::Wrapping::None),
                 text(full_path),
                 tooltip::Position::Top,
             )
-            .style(container::rounded_box),
-        ]
-        .spacing(SPACING_M_NUDGE)
-        .align_y(Center);
+            .style(container::rounded_box)
+            .into()
+        } else {
+            secondary(fl!("addons-folder-none")).into()
+        };
+        let folder = row![secondary(fl!("addons-folder")), path]
+            .spacing(SPACING_M_NUDGE)
+            .align_y(Center);
         let controls = row![
             checkbox(self.config.sync_on_launch)
                 .label(fl!("sync-on-launch"))
@@ -1306,6 +1459,16 @@ fn confirm_open_view(url: &str) -> Element<'_, Message> {
             dialog_button(fl!("open-link-confirm"), Message::OpenConfirmed),
         ],
     )
+}
+
+fn eso_addons_example() -> &'static str {
+    if cfg!(target_os = "windows") {
+        r"Documents\Elder Scrolls Online\live\AddOns"
+    } else if cfg!(target_os = "macos") {
+        "Documents/Elder Scrolls Online/live/AddOns"
+    } else {
+        "~/.local/share/Steam/steamapps/compatdata/306130/pfx/drive_c/users/steamuser/Documents/Elder Scrolls Online/live/AddOns"
+    }
 }
 
 fn dialog_view(dialog: &Dialog, page_height: f32) -> Element<'_, Message> {
@@ -1398,6 +1561,31 @@ fn dialog_view(dialog: &Dialog, page_height: f32) -> Element<'_, Message> {
                 dialog_button(fl!("ok"), Message::ClearLogsConfirmed),
             ],
         ),
+        Dialog::Migrate(_) => dialog_frame(
+            fl!("migrate-title"),
+            text(fl!("migrate-question")),
+            vec![
+                dialog_button(fl!("migrate-open-folders"), Message::MigrateOpenFolders),
+                dialog_button(fl!("migrate-keep-profile"), Message::MigrateChoice(false)),
+                dialog_button(fl!("migrate-keep-old"), Message::MigrateChoice(true)),
+            ],
+        ),
+        Dialog::ChooseFolder { configured } => dialog_frame(
+            if *configured {
+                fl!("change-folder-title")
+            } else {
+                fl!("no-folder-title")
+            },
+            text(format!(
+                "{}\n\n{}",
+                fl!("no-folder-question", example = eso_addons_example()),
+                fl!("no-folder-warning")
+            )),
+            vec![
+                dialog_button(fl!("cancel"), Message::DialogClosed),
+                dialog_button(fl!("no-folder-choose"), Message::ChooseFolder),
+            ],
+        ),
     }
 }
 
@@ -1451,8 +1639,8 @@ fn bar_fill(theme: &Theme) -> container::Style {
     }
 }
 
-fn save(config: &Config, reason: &str) {
-    match config.save(Path::new(config::FILE)) {
+fn save(config: &Config, path: &Path, reason: &str) {
+    match config.save(path) {
         Ok(()) => tracing::info!("config updated: {reason}"),
         Err(error) => tracing::error!("cannot save settings ({reason}): {error}"),
     }

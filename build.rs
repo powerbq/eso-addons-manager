@@ -10,8 +10,27 @@ mod glyphs {
     include!("src/icon/glyphs.rs");
 }
 
+#[cfg(windows)]
+fn embed_windows_icon() {
+    let icon = "icons/eso-addons-manager.ico";
+    println!("cargo::rerun-if-changed={icon}");
+    assert!(
+        std::path::Path::new(icon).exists(),
+        "{icon} not found — run ./icons.sh and commit icons/"
+    );
+    winresource::WindowsResource::new()
+        .set_icon(icon)
+        .compile()
+        .expect("the Windows icon resource can be compiled");
+}
+
+#[cfg(not(windows))]
+fn embed_windows_icon() {}
+
 fn main() {
     println!("cargo::rerun-if-changed=src/icon/glyphs.rs");
+
+    embed_windows_icon();
 
     let scope = ReadScope::new(lucide_icons::LUCIDE_FONT_BYTES);
     let data = scope

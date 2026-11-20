@@ -1,0 +1,24 @@
+pkgname=eso-addons-manager
+pkgver=0.0.1
+pkgrel=1
+pkgdesc="Manage Elder Scrolls Online add-ons"
+arch=('x86_64')
+url="https://github.com/powerbq/eso-addons-manager"
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'hicolor-icon-theme')
+options=('!debug')
+source=()
+
+pkgver() {
+    sed -nE 's/^version *= *"([^"]+)".*/\1/p' "$startdir/../../Cargo.toml" | head -1
+}
+
+package() {
+    local root="$startdir/../.."
+    install -Dm755 "$root/target/packaging/app" "$pkgdir/usr/bin/eso-addons-manager"
+    install -Dm644 "$root/assets/linux/eso-addons-manager.desktop" \
+        "$pkgdir/usr/share/applications/eso-addons-manager.desktop"
+    install -Dm644 "$root/icons/eso-addons-manager.png" \
+        "$pkgdir/usr/share/icons/hicolor/256x256/apps/eso-addons-manager.png"
+    install -Dm644 "$root/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

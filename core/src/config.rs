@@ -8,8 +8,6 @@ use ini::{EscapePolicy, Ini, LineSeparator, ParseOption, WriteOption};
 
 pub const FILE: &str = "app.ini";
 
-const DEFAULT_TARGET_DIRECTORY: &str = "target/AddOns";
-
 const GENERAL: &str = "General";
 const ADDONS: &str = "AddOns";
 const FAVOURITES: &str = "Favourites";
@@ -65,7 +63,7 @@ pub struct Archive {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            target_directory: DEFAULT_TARGET_DIRECTORY.to_owned(),
+            target_directory: String::new(),
             sync_on_launch: false,
             language: String::new(),
             log_to_file: true,
@@ -316,7 +314,7 @@ mod tests {
     #[test]
     fn defaults_when_values_are_missing() {
         assert_eq!(Config::parse("").unwrap(), Config::default());
-        assert_eq!(Config::default().target_directory, "target/AddOns");
+        assert_eq!(Config::default().target_directory, "");
     }
 
     #[test]

@@ -11,14 +11,13 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 const DEFAULT_FILTER: &str = "warn,app=info,eso_addons_manager_core=info";
 
-pub const DIRECTORY: &str = "logs";
 const LOG_NAME: &str = "app";
 const LOG_SUFFIX: &str = ".log";
 const KEEP_FILES: usize = 10;
 
-pub fn setup() -> (mpsc::UnboundedReceiver<String>, FileLog) {
+pub fn setup(directory: PathBuf) -> (mpsc::UnboundedReceiver<String>, FileLog) {
     let (sender, receiver) = mpsc::unbounded();
-    let file = FileLog::new(PathBuf::from(DIRECTORY));
+    let file = FileLog::new(directory);
 
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER)))
@@ -183,7 +182,7 @@ impl State {
     }
 }
 
-fn is_log(path: &Path) -> bool {
+pub(crate) fn is_log(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with(LOG_NAME) && name.ends_with(LOG_SUFFIX))
