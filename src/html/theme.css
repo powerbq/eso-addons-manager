@@ -1,0 +1,74 @@
+html, body {
+    background: {background};
+    color: {text};
+}
+
+html {
+    font-size: {size}px;
+}
+
+body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 4px 4px 16px 4px;
+}
+
+a:link, a:visited {
+    color: {link};
+}
+
+h1, h2, h3, h4, h5, h6 {
+    margin: 0.8em 0 0.4em 0;
+}
+
+pre, code {
+    font-family: monospace;
+    background: {code};
+}
+
+pre {
+    padding: 8px;
+    white-space: pre-wrap;
+}
+
+blockquote {
+    margin: 4px 0 4px 8px;
+    padding-left: 10px;
+    border-left: 3px solid {line};
+}
+
+.quote-author {
+    font-weight: bold;
+}
+
+.indent {
+    margin-left: 24px;
+}
+
+.spoiler {
+    border: 1px dashed {line};
+    padding: 6px;
+}
+
+li.text {
+    list-style-type: none;
+}
+
+img {
+    max-width: 100%;
+}
+
+table {
+    border-collapse: collapse;
+    font-size: 1rem;
+}
+
+td, th {
+    border: 1px solid {line};
+    padding: 4px 8px;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid {line};
+}

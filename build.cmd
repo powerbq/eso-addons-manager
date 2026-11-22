@@ -1,11 +1,16 @@
 @echo off
+setlocal
 
-call "%~dp0compile_translations.cmd" || exit /b 1
+cd /d "%~dp0"
 
-if not exist build mkdir build
+if not "%~1"=="" set RELEASE_TAG=%~1
 
-cd build
+powershell -NoProfile -ExecutionPolicy Bypass -File patches\cargo-patched.ps1 build --profile packaging || goto :failed
 
-pyinstaller --clean --distpath dist --workpath work ..\app.spec
+echo target\packaging\app.exe
+if not defined CI pause
+exit /b 0
 
-pause
+:failed
+if not defined CI pause
+exit /b 1

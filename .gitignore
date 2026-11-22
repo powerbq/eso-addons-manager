@@ -1,10 +1,2 @@
-/build/work/
-/build/dist/
-/__pycache__/
 /.idea/
-/.venv/
-/addons/
-/custom/
 /target/
-/app.ini
-/translations/*.qm

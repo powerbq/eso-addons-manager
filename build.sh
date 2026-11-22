@@ -1,11 +1,13 @@
 #!/bin/bash
 
-cd $(dirname $0)
+set -euo pipefail
 
-./compile_translations.sh
+cd "$(dirname "$0")"
 
-mkdir -p build
+if [ -n "${1:-}" ]; then
+  export RELEASE_TAG="$1"
+fi
 
-cd build
+cargo build --locked --profile packaging
 
-pyinstaller --clean --distpath dist --workpath work ../app.spec
+echo "target/packaging/app"

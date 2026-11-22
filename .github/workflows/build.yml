@@ -10,46 +10,255 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            asset: eso-addons-manager-windows-amd64.zip
-          - os: ubuntu-latest
-            asset: eso-addons-manager-linux-amd64.zip
-          - os: macos-14
-            asset: eso-addons-manager-macos-arm64.zip
-    runs-on: ${{ matrix.os }}
+  # --- 1. Build (compile the binary) ---
+  build-linux:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --locked --workspace
+      - name: Build
+        run: ./build.sh "${{ github.ref_name }}"
+      - uses: actions/upload-artifact@v4
         with:
-          python-version: '3.12'
-      - run: pip install -r requirements.txt
-      - name: Compile translations
-        shell: bash
-        run: ./compile_translations.sh
-      - run: pyinstaller app.spec
-      - name: Package + checksum
-        shell: bash
+          name: bin-linux
+          path: target/packaging/app
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        shell: cmd
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File patches\cargo-patched.ps1 test --workspace
+      - name: Build
+        shell: cmd
+        run: build.cmd ${{ github.ref_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-windows
+          path: target/packaging/app.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --locked --workspace
+      - name: Build
+        run: ./build.sh "${{ github.ref_name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-macos
+          path: target/packaging/app
+
+  # --- 2. Package (one job per package type) ---
+  zip-linux:
+    needs: build-linux
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-linux
+          path: target/packaging
+      - run: chmod +x target/packaging/app
+      - run: packaging/zip-linux/zip.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-zip-linux
+          path: target/dist/zip-linux
+
+  appimage:
+    needs: build-linux
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-linux
+          path: target/packaging
+      - run: chmod +x target/packaging/app
+      - name: Install FUSE
+        run: sudo apt-get update && sudo apt-get install -y fuse libfuse2
+      - run: packaging/appimage/appimage.sh
         env:
-          ASSET: ${{ matrix.asset }}
+          APPIMAGE_EXTRACT_AND_RUN: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-appimage
+          path: target/dist/appimage
+
+  deb:
+    needs: build-linux
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-linux
+          path: target/packaging
+      - run: chmod +x target/packaging/app
+      - name: Install tooling
         run: |
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            ditto -c -k --keepParent dist/app.app "$ASSET"
-          else
-            python -c "import shutil, os; shutil.make_archive(os.environ['ASSET'][:-4], 'zip', 'dist/app')"
+          sudo apt-get update && sudo apt-get install -y dpkg-dev
+          cargo install cargo-deb
+      - run: packaging/deb/deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-deb
+          path: target/dist/deb
+
+  rpm:
+    needs: build-linux
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-linux
+          path: target/packaging
+      - run: chmod +x target/packaging/app
+      - name: Install tooling
+        run: cargo install cargo-generate-rpm
+      - run: packaging/rpm/rpm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-rpm
+          path: target/dist/rpm
+
+  arch:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install tools
+        run: pacman -Syu --noconfirm --needed base-devel git nodejs
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-linux
+          path: target/packaging
+      - name: Build package
+        run: |
+          chmod +x target/packaging/app
+          useradd -m builder
+          chown -R builder:builder .
+          sudo -u builder packaging/arch/arch.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-arch
+          path: target/dist/arch
+
+  zip-windows:
+    needs: build-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-windows
+          path: target/packaging
+      - name: Zip
+        shell: cmd
+        run: packaging\zip-windows\zip.cmd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-zip-windows
+          path: target/dist/zip-windows
+
+  inno:
+    needs: build-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-windows
+          path: target/packaging
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Installer
+        shell: cmd
+        run: packaging\inno\inno.cmd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-inno
+          path: target/dist/inno
+
+  zip-macos:
+    needs: build-macos
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-macos
+          path: target/packaging
+      - run: chmod +x target/packaging/app
+      - run: packaging/zip-macos/zip.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-zip-macos
+          path: target/dist/zip-macos
+
+  dmg:
+    needs: build-macos
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-macos
+          path: target/packaging
+      - run: chmod +x target/packaging/app
+      - run: packaging/dmg/dmg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-dmg
+          path: target/dist/dmg
+
+  # --- 3. Release (waits for every packager) ---
+  release:
+    needs: [zip-linux, appimage, deb, rpm, arch, zip-windows, inno, zip-macos, dmg]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+      - name: Version file and checksums
+        run: |
+          sed -nE 's/^version *= *"([^"]+)".*/\1/p' Cargo.toml | head -1 > dist/version.txt
+          cd dist
+          mapfile -t assets < <(find . -maxdepth 1 -type f ! -name 'version.txt' -printf '%P\n' | sort)
+          sha256sum "${assets[@]}" > SHA256SUMS
+      - name: Clear old release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release view "$tag" --json assets --jq '.assets[].name' \
+              | while IFS= read -r asset; do
+                  [ -n "$asset" ] && gh release delete-asset "$tag" "$asset" --yes
+                done
           fi
-          python -c "import hashlib, os; a = os.environ['ASSET']; open(a + '.sha256', 'w').write(hashlib.sha256(open(a, 'rb').read()).hexdigest())"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           prerelease: ${{ github.ref_name == 'testing' }}
           make_latest: ${{ github.ref_name == 'current' }}
-          files: |
-            ${{ matrix.asset }}
-            ${{ matrix.asset }}.sha256
+          files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
