@@ -41,32 +41,32 @@ pub fn validate(patterns: &[String]) -> Result<(), regex::Error> {
 }
 
 pub fn automatic(installed: &BTreeSet<String>, ttc_managed: bool) -> Vec<String> {
-    built_in()
+    built_in(ttc_managed)
         .into_iter()
         .filter(|(uid, _)| installed.contains(*uid))
-        // When the sync manages the TTC price files itself, drop the TTC exclusions: they only
-        // guard client-generated files while the manager is not providing prices.
-        .filter(|(uid, _)| !(*uid == TTC && ttc_managed))
         .flat_map(|(_, patterns)| patterns)
         .collect()
 }
 
-fn built_in() -> Vec<(&'static str, Vec<String>)> {
-    let ttc = [
-        r"^TamrielTradeCentre/$",
-        r"^TamrielTradeCentre/Client/$",
-        r"^TamrielTradeCentre/Client/TTC_Lock$",
-        r"^TamrielTradeCentre/PriceTableEU\.lua$",
-        r"^TamrielTradeCentre/PriceTableNA\.lua$",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .chain(
-        TTC_LANGUAGES
-            .iter()
-            .map(|language| format!(r"^TamrielTradeCentre/ItemLookUpTable_{language}\.lua$")),
-    )
-    .collect();
+fn built_in(ttc_managed: bool) -> Vec<(&'static str, Vec<String>)> {
+    // The TTC price archive provides the price table and every ItemLookUpTable_<LANG> file, so when
+    // the sync manages prices it owns those: their exclusions are dropped, letting the sync write,
+    // refresh and clean them (including deleting the other region's stale table). Only the client's
+    // lock file and the folders holding it stay protected — the sync never provides the lock.
+    let mut ttc = vec![
+        r"^TamrielTradeCentre/$".to_owned(),
+        r"^TamrielTradeCentre/Client/$".to_owned(),
+        r"^TamrielTradeCentre/Client/TTC_Lock$".to_owned(),
+    ];
+    if !ttc_managed {
+        ttc.push(r"^TamrielTradeCentre/PriceTableEU\.lua$".to_owned());
+        ttc.push(r"^TamrielTradeCentre/PriceTableNA\.lua$".to_owned());
+        ttc.extend(
+            TTC_LANGUAGES
+                .iter()
+                .map(|language| format!(r"^TamrielTradeCentre/ItemLookUpTable_{language}\.lua$")),
+        );
+    }
 
     let harvest_map = [r"^HarvestMapData/$", r"^HarvestMapData/Modules/$"]
         .into_iter()
@@ -110,6 +110,12 @@ mod tests {
             !Exclusions::new(&config, &installed(&[TTC]), true)
                 .unwrap()
                 .matches(path)
+        );
+        // …but the client's lock file stays protected.
+        assert!(
+            Exclusions::new(&config, &installed(&[TTC]), true)
+                .unwrap()
+                .matches("TamrielTradeCentre/Client/TTC_Lock")
         );
     }
 
@@ -165,10 +171,10 @@ mod tests {
         assert_eq!(automatic(&installed(&[TTC]), false).len(), 12);
         assert_eq!(automatic(&installed(&[HARVEST_MAP]), false).len(), 12);
 
-        // With prices managed by the sync, TTC rules are dropped but HarvestMap stays.
-        assert!(automatic(&installed(&[TTC]), true).is_empty());
+        // With prices managed by the sync, only the TTC lock-file rules remain; HarvestMap stays.
+        assert_eq!(automatic(&installed(&[TTC]), true).len(), 3);
         assert_eq!(automatic(&installed(&[HARVEST_MAP]), true).len(), 12);
-        assert_eq!(automatic(&installed(&[TTC, HARVEST_MAP]), true).len(), 12);
+        assert_eq!(automatic(&installed(&[TTC, HARVEST_MAP]), true).len(), 15);
     }
 
     #[test]
