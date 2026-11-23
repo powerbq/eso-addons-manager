@@ -6,6 +6,7 @@ use std::{fs, io};
 use encoding_rs::{Encoding, UTF_8};
 use ini::{EscapePolicy, Ini, LineSeparator, ParseOption, WriteOption};
 
+use crate::api::ApiVersion;
 use crate::catalogue::{Filter, SortOrder};
 use crate::ttc::Region;
 
@@ -24,6 +25,7 @@ const SYNC_ON_LAUNCH: &str = "SyncOnLaunch";
 const LANGUAGE: &str = "Language";
 const LOG_TO_FILE: &str = "LogToFile";
 const CHECK_FOR_UPDATES: &str = "CheckForUpdates";
+const API_VERSION: &str = "ApiVersion";
 const UPDATE_PRICES: &str = "UpdatePrices";
 const PRICE_REGION: &str = "PriceRegion";
 const SORT: &str = "Sort";
@@ -58,6 +60,7 @@ pub struct Config {
     pub language: String,
     pub log_to_file: bool,
     pub check_for_updates: bool,
+    pub api_version: ApiVersion,
     pub update_prices: bool,
     pub price_region: Region,
     pub sort: SortOrder,
@@ -78,6 +81,7 @@ impl Default for Config {
             language: String::new(),
             log_to_file: true,
             check_for_updates: true,
+            api_version: ApiVersion::default(),
             update_prices: true,
             price_region: Region::default(),
             sort: SortOrder::default(),
@@ -154,6 +158,10 @@ impl Config {
                             LANGUAGE => config.language = value,
                             LOG_TO_FILE => config.log_to_file = value == "true",
                             CHECK_FOR_UPDATES => config.check_for_updates = value == "true",
+                            API_VERSION => {
+                                config.api_version =
+                                    ApiVersion::from_key(&value).unwrap_or_default()
+                            }
                             _ => {}
                         }
                     }
@@ -228,6 +236,7 @@ impl Config {
                 "false"
             },
         );
+        set(GENERAL, API_VERSION, self.api_version.as_key());
 
         set(CATALOGUE, SORT, self.sort.as_key());
         set(
@@ -543,6 +552,23 @@ mod tests {
         let text = config.to_ini_string();
         assert!(text.contains("CheckForUpdates = false"));
         assert_eq!(Config::parse(&text).unwrap(), config);
+    }
+
+    #[test]
+    fn api_version_defaults_v3_and_round_trips() {
+        assert_eq!(Config::default().api_version, ApiVersion::V3);
+        assert_eq!(Config::parse("").unwrap().api_version, ApiVersion::V3);
+
+        let config = Config {
+            api_version: ApiVersion::V4,
+            ..Config::default()
+        };
+        let text = config.to_ini_string();
+        assert!(text.contains("ApiVersion = v4"));
+        assert_eq!(Config::parse(&text).unwrap(), config);
+
+        let fallback = Config::parse("[General]\nApiVersion = v9\n").unwrap();
+        assert_eq!(fallback.api_version, ApiVersion::V3);
     }
 
     #[test]

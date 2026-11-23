@@ -7,7 +7,9 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
-use eso_addons_manager_core::{Addon, Config, Filter, Query, SortOrder, api, bbcode, cache, store};
+use eso_addons_manager_core::{
+    Addon, Category, Config, Filter, Query, Screenshot, SortOrder, api, bbcode, cache, store,
+};
 use iced::futures::future;
 use iced::widget::operation::scroll_to;
 use iced::widget::{
@@ -113,6 +115,7 @@ pub enum Section {
 pub struct Sections {
     description: String,
     changelog: String,
+    screenshots: Vec<Screenshot>,
 }
 
 impl Sections {
@@ -130,7 +133,7 @@ impl Sections {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Loaded(Result<(Vec<api::FileListEntry>, Vec<api::CategoryEntry>), api::Error>),
+    Loaded(Result<(Vec<Addon>, Vec<Category>), api::Error>),
     Retry,
     IconLoaded(String, Result<image::Handle, api::Error>),
     SearchChanged(String),
@@ -832,7 +835,14 @@ impl Loaded {
         .height(Fill)
         .into();
 
-        let body: Element<'_, Message> = match self.gallery.thumbnails(&addon.screenshots) {
+        let screenshots: &[Screenshot] = if !addon.screenshots.is_empty() {
+            &addon.screenshots
+        } else if let Details::Ready(sections) = &self.details {
+            &sections.screenshots
+        } else {
+            &[]
+        };
+        let body: Element<'_, Message> = match self.gallery.thumbnails(screenshots) {
             Some(thumbnails) => row![body, rule::vertical(1), thumbnails.map(Message::Gallery)]
                 .spacing(SPACING_M_NUDGE)
                 .into(),
@@ -1086,6 +1096,7 @@ fn load_details(client: api::Client, api: Arc<Path>, uid: String) -> Task<Messag
             Ok(Sections {
                 description: convert(&details.description),
                 changelog: convert(&details.changelog),
+                screenshots: details.screenshots,
             })
         },
         move |result| Message::DetailsLoaded(uid.clone(), result),

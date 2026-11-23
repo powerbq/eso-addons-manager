@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::de::DeserializeOwned;
 
-use crate::api::{self, CategoryEntry, Client, FileDetails, FileListEntry};
+use crate::api::{self, ApiVersion, Client};
 use crate::bbcode;
+use crate::catalogue::{Addon, Category, Details};
 
 pub const DIRECTORY: &str = "api";
 pub const FILE_LIST: &str = "filelist.json";
@@ -18,21 +18,26 @@ static INFO_LINK: LazyLock<Regex> =
 static FILEINFO_LINK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)esoui\.com/\S*?fileinfo\.php\?\S*?\bid=(\d+)").unwrap());
 
-pub async fn file_list(client: &Client, api: &Path) -> Result<Vec<FileListEntry>, api::Error> {
-    fetch_cached(client, FILE_LIST, &api.join(FILE_LIST)).await
+pub async fn file_list(client: &Client, api: &Path) -> Result<Vec<Addon>, api::Error> {
+    fetch_cached(client, FILE_LIST, &api.join(FILE_LIST), |raw| {
+        api::parse_file_list(client.version(), raw)
+    })
+    .await
 }
 
-pub async fn categories(client: &Client, api: &Path) -> Result<Vec<CategoryEntry>, api::Error> {
-    fetch_cached(client, CATEGORY_LIST, &api.join(CATEGORY_LIST)).await
+pub async fn categories(client: &Client, api: &Path) -> Result<Vec<Category>, api::Error> {
+    fetch_cached(client, CATEGORY_LIST, &api.join(CATEGORY_LIST), |raw| {
+        api::parse_categories(client.version(), raw)
+    })
+    .await
 }
 
-pub async fn file_details(
-    client: &Client,
-    api: &Path,
-    uid: &str,
-) -> Result<FileDetails, api::Error> {
+pub async fn file_details(client: &Client, api: &Path, uid: &str) -> Result<Details, api::Error> {
     let remote = format!("{DETAILS}/{uid}.json");
-    let details: Vec<FileDetails> = fetch_cached(client, &remote, &details_path(api, uid)).await?;
+    let details = fetch_cached(client, &remote, &details_path(api, uid), |raw| {
+        api::parse_details(client.version(), raw)
+    })
+    .await?;
 
     details
         .into_iter()
@@ -40,20 +45,19 @@ pub async fn file_details(
         .ok_or_else(|| api::Error::NotFound(uid.to_owned()))
 }
 
-pub fn cached_details(api: &Path, uid: &str) -> Option<FileDetails> {
+pub fn cached_details(api: &Path, uid: &str, version: ApiVersion) -> Option<Details> {
     let raw = fs::read_to_string(details_path(api, uid)).ok()?;
-    let details: Vec<FileDetails> = serde_json::from_str(&raw).ok()?;
 
-    details.into_iter().next()
+    api::parse_details(version, &raw).ok()?.into_iter().next()
 }
 
-pub fn cached_file_list(api: &Path) -> Option<Vec<FileListEntry>> {
+pub fn cached_file_list(api: &Path, version: ApiVersion) -> Option<Vec<Addon>> {
     let raw = fs::read_to_string(api.join(FILE_LIST)).ok()?;
 
-    serde_json::from_str(&raw).ok()
+    api::parse_file_list(version, &raw).ok()
 }
 
-pub fn links(details: &FileDetails) -> Vec<u32> {
+pub fn links(details: &Details) -> Vec<u32> {
     let mut uids = Vec::new();
     for url in bbcode::urls(&details.description) {
         if let Some(uid) = esoui_uid(&url)
@@ -73,21 +77,22 @@ pub fn is_cache_entry(path: &Path) -> bool {
     )
 }
 
-async fn fetch_cached<T: DeserializeOwned>(
+async fn fetch_cached<R>(
     client: &Client,
     remote: &str,
     path: &Path,
-) -> Result<T, api::Error> {
+    parse: impl Fn(&str) -> Result<R, serde_json::Error>,
+) -> Result<R, api::Error> {
     match client.get_raw(remote).await {
         Ok(raw) => {
-            let parsed = serde_json::from_str(&raw).map_err(api::Error::parse)?;
+            let parsed = parse(&raw).map_err(api::Error::parse)?;
             write(path, raw.as_bytes());
             Ok(parsed)
         }
         Err(error) => match fs::read_to_string(path) {
             Ok(raw) => {
                 tracing::warn!("using the cached {remote}: {error}");
-                serde_json::from_str(&raw).map_err(api::Error::parse)
+                parse(&raw).map_err(api::Error::parse)
             }
             Err(_) => Err(error),
         },
@@ -127,13 +132,14 @@ fn write(path: &Path, bytes: &[u8]) {
 mod tests {
     use super::*;
 
-    fn details(description: &str) -> FileDetails {
-        FileDetails {
+    fn details(description: &str) -> Details {
+        Details {
             version: String::new(),
             md5: String::new(),
             download_url: String::new(),
             description: description.to_owned(),
             changelog: String::new(),
+            screenshots: Vec::new(),
         }
     }
 

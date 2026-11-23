@@ -12,5 +12,5 @@ pub mod store;
 pub mod sync;
 pub mod ttc;
 
-pub use catalogue::{Addon, Catalogue, Category, Filter, Query, Screenshot, SortOrder};
+pub use catalogue::{Addon, Catalogue, Category, Details, Filter, Query, Screenshot, SortOrder};
 pub use config::Config;

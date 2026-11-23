@@ -135,6 +135,8 @@ update-dont-ask = Більше не питати
 update-up-to-date = У вас найновіша версія.
 update-check-failed = Не вдалося перевірити оновлення.
 
+menu-experimental = Експериментальне
+menu-discontinued = Застарілі аддони
 menu-ttc-prices = Ціни TTC
 menu-update-prices = Оновлювати ціни
 region-eu = Європа

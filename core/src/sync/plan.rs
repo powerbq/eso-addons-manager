@@ -758,7 +758,7 @@ mod tests {
         writer.finish().unwrap().into_inner()
     }
 
-    fn entry(uid: &str, name: &str, directories: &[&str]) -> FileListEntry {
+    fn entry(uid: &str, name: &str, directories: &[&str]) -> Addon {
         FileListEntry {
             uid: uid.into(),
             name: name.into(),
@@ -777,6 +777,7 @@ mod tests {
             thumbnails: Vec::new(),
             screenshots: Vec::new(),
         }
+        .into()
     }
 
     fn md5_hex(bytes: &[u8]) -> String {

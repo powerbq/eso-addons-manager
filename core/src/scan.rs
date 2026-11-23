@@ -220,7 +220,7 @@ mod tests {
     use crate::api::FileListEntry;
     use crate::cache::Archive;
 
-    fn entry(uid: &str, directories: &[&str]) -> FileListEntry {
+    fn entry(uid: &str, directories: &[&str]) -> Addon {
         FileListEntry {
             uid: uid.into(),
             name: format!("Addon {uid}"),
@@ -239,6 +239,7 @@ mod tests {
             thumbnails: Vec::new(),
             screenshots: Vec::new(),
         }
+        .into()
     }
 
     fn uids<'a>(found: &Found<'a>) -> Vec<&'a str> {

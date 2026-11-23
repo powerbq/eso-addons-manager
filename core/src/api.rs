@@ -1,14 +1,39 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 
+use crate::catalogue::{Addon, Category, Details};
 use crate::html;
 
-const API_PREFIX: &str = "https://api.mmoui.com/v3/game/ESO";
+pub(crate) mod v4;
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ApiVersion {
+    #[default]
+    V3,
+    V4,
+}
+
+impl ApiVersion {
+    pub fn as_key(self) -> &'static str {
+        match self {
+            Self::V3 => "v3",
+            Self::V4 => "v4",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key.trim().to_ascii_lowercase().as_str() {
+            "v3" => Some(Self::V3),
+            "v4" => Some(Self::V4),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
@@ -35,10 +60,11 @@ impl From<reqwest::Error> for Error {
 #[derive(Debug, Clone)]
 pub struct Client {
     http: reqwest::Client,
+    version: ApiVersion,
 }
 
 impl Client {
-    pub fn new() -> Result<Self, Error> {
+    pub fn new(version: ApiVersion) -> Result<Self, Error> {
         let _ = rustls::crypto::ring::default_provider().install_default();
 
         let http = reqwest::Client::builder()
@@ -47,21 +73,25 @@ impl Client {
             .user_agent(concat!("eso-addons-manager/", env!("CARGO_PKG_VERSION")))
             .build()?;
 
-        Ok(Self { http })
+        Ok(Self { http, version })
     }
 
-    pub async fn file_list(&self) -> Result<Vec<FileListEntry>, Error> {
-        self.get_json("filelist.json").await
+    fn prefix(&self) -> &'static str {
+        match self.version {
+            ApiVersion::V3 => "https://api.mmoui.com/v3/game/ESO",
+            ApiVersion::V4 => "https://api.mmoui.com/v4/game/ESO",
+        }
     }
 
-    pub async fn categories(&self) -> Result<Vec<CategoryEntry>, Error> {
-        self.get_json("categorylist.json").await
+    pub fn version(&self) -> ApiVersion {
+        self.version
     }
 
-    pub async fn file_details(&self, uid: &str) -> Result<FileDetails, Error> {
-        let details: Vec<FileDetails> = self.get_json(&format!("filedetails/{uid}.json")).await?;
+    pub async fn file_details(&self, uid: &str) -> Result<Details, Error> {
+        let raw = self.get_raw(&format!("filedetails/{uid}.json")).await?;
 
-        details
+        parse_details(self.version, &raw)
+            .map_err(Error::parse)?
             .into_iter()
             .next()
             .ok_or_else(|| Error::NotFound(uid.to_owned()))
@@ -84,20 +114,54 @@ impl Client {
     }
 
     pub async fn get_raw(&self, path: &str) -> Result<String, Error> {
-        let url = format!("{API_PREFIX}/{path}");
+        let url = format!("{}/{path}", self.prefix());
         tracing::debug!("GET {url}");
         let response = self.http.get(url).send().await?.error_for_status()?;
 
         Ok(response.text().await?)
     }
+}
 
-    async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, Error> {
-        let url = format!("{API_PREFIX}/{path}");
-        tracing::debug!("GET {url}");
-        let response = self.http.get(url).send().await?.error_for_status()?;
+pub fn parse_file_list(version: ApiVersion, raw: &str) -> Result<Vec<Addon>, serde_json::Error> {
+    Ok(match version {
+        ApiVersion::V3 => serde_json::from_str::<Vec<FileListEntry>>(raw)?
+            .into_iter()
+            .map(|entry| entry.into())
+            .collect(),
+        ApiVersion::V4 => serde_json::from_str::<Vec<v4::FileListEntry>>(raw)?
+            .into_iter()
+            .map(|entry| entry.into())
+            .collect(),
+    })
+}
 
-        Ok(response.json().await?)
-    }
+pub fn parse_categories(
+    version: ApiVersion,
+    raw: &str,
+) -> Result<Vec<Category>, serde_json::Error> {
+    Ok(match version {
+        ApiVersion::V3 => serde_json::from_str::<Vec<CategoryEntry>>(raw)?
+            .into_iter()
+            .map(|entry| entry.into())
+            .collect(),
+        ApiVersion::V4 => serde_json::from_str::<Vec<v4::CategoryEntry>>(raw)?
+            .into_iter()
+            .map(|entry| entry.into())
+            .collect(),
+    })
+}
+
+pub fn parse_details(version: ApiVersion, raw: &str) -> Result<Vec<Details>, serde_json::Error> {
+    Ok(match version {
+        ApiVersion::V3 => serde_json::from_str::<Vec<FileDetails>>(raw)?
+            .into_iter()
+            .map(|details| details.into())
+            .collect(),
+        ApiVersion::V4 => serde_json::from_str::<Vec<v4::FileDetails>>(raw)?
+            .into_iter()
+            .map(|details| details.into())
+            .collect(),
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -168,7 +232,7 @@ pub struct FileDetails {
     pub changelog: String,
 }
 
-fn html_text<'de, D>(deserializer: D) -> Result<String, D::Error>
+pub(crate) fn html_text<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -177,7 +241,7 @@ where
     Ok(html::decode_entities(&text))
 }
 
-fn nullable<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+pub(crate) fn nullable<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de> + Default,
@@ -185,7 +249,7 @@ where
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-fn lenient_number<'de, D>(deserializer: D) -> Result<u64, D::Error>
+pub(crate) fn lenient_number<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -260,5 +324,103 @@ mod tests {
         assert_eq!(entry.downloads, 0);
         assert!(entry.directories.is_empty());
         assert!(entry.screenshots.is_empty());
+    }
+
+    #[test]
+    fn parses_v4_file_list_and_folds_nested_bundles_to_top_level() {
+        let json = r#"[{
+            "id": 3648, "categoryId": 39, "version": "1", "lastUpdate": 42,
+            "title": "SuperStar", "author": "author",
+            "fileInfoUri": "https://www.esoui.com/downloads/info3648-SuperStar.html",
+            "downloads": 10, "downloadsMonthly": 2, "favorites": 3, "checksum": "x",
+            "addonStatus": "Live",
+            "addons": [
+                { "path": "SuperStar" },
+                { "path": "SuperStar/libs/LibSkillsFactory" }
+            ]
+        }]"#;
+
+        let addons = parse_file_list(ApiVersion::V4, json).unwrap();
+
+        assert_eq!(addons.len(), 1);
+        assert_eq!(addons[0].uid, "3648");
+        assert_eq!(addons[0].category_id, "39");
+        assert_eq!(addons[0].name, "SuperStar");
+        assert_eq!(addons[0].downloads, 10);
+        assert_eq!(addons[0].directories, ["SuperStar"]);
+        assert!(addons[0].screenshots.is_empty());
+    }
+
+    #[test]
+    fn keeps_top_level_sibling_bundles_in_v4() {
+        let json = r#"[{
+            "id": 1135, "title": "TeamFormation", "author": "author",
+            "addons": [
+                { "path": "ProvisionsTeamFormation" },
+                { "path": "LibAddonMenu-2.0" },
+                { "path": "LibStub" }
+            ]
+        }]"#;
+
+        let addons = parse_file_list(ApiVersion::V4, json).unwrap();
+
+        assert_eq!(
+            addons[0].directories,
+            ["ProvisionsTeamFormation", "LibAddonMenu-2.0", "LibStub"]
+        );
+    }
+
+    #[test]
+    fn parses_v4_details_with_images_as_screenshots() {
+        let json = r#"[{
+            "id": 7, "version": "2.0", "checksum": "abc",
+            "downloadUri": "https://cdn.example/getfile?id=7",
+            "description": "d", "changeLog": "c",
+            "images": [
+                { "thumbUrl": "t1", "imageUrl": "i1" },
+                { "thumbUrl": "t2", "imageUrl": "i2" }
+            ]
+        }]"#;
+
+        let details = parse_details(ApiVersion::V4, json)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+
+        assert_eq!(details.md5, "abc");
+        assert_eq!(details.download_url, "https://cdn.example/getfile?id=7");
+        assert_eq!(details.screenshots.len(), 2);
+        assert_eq!(details.screenshots[0].thumbnail, "t1");
+        assert_eq!(details.screenshots[0].full, "i1");
+    }
+
+    #[test]
+    fn parses_v4_categories_with_mixed_id_types() {
+        let json = r#"[
+            { "id": "157", "title": "Discontinued & Outdated", "iconUrl": "u", "parentIds": ["0"] },
+            { "id": 53, "title": "Libraries", "parentIds": [] }
+        ]"#;
+
+        let categories = parse_categories(ApiVersion::V4, json).unwrap();
+
+        assert_eq!(categories.len(), 2);
+        assert_eq!(categories[0].id, "157");
+        assert_eq!(categories[1].id, "53");
+    }
+
+    #[test]
+    fn v4_tolerates_null_sequences() {
+        let list = r#"[{ "id": 1, "title": "x", "author": "y", "addons": null }]"#;
+        let addons = parse_file_list(ApiVersion::V4, list).unwrap();
+        assert!(addons[0].directories.is_empty());
+
+        let details = r#"[{ "id": 1, "version": "1", "images": null }]"#;
+        let details = parse_details(ApiVersion::V4, details)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        assert!(details.screenshots.is_empty());
     }
 }

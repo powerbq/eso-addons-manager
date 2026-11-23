@@ -70,22 +70,40 @@ const PALETTE: Palette = Palette {
 const SECONDARY_TEXT_MIX: f32 = 0.35;
 const SECONDARY_TEXT_STEP: f32 = 0.05;
 
-fn clean_api_cache(api: &Path) {
-    core_clean::retain(api, store::is_cache_entry)
+fn clean_api_cache(api_root: &Path) {
+    if api_root.is_dir() {
+        core_clean::retain(api_root, |path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name == api::ApiVersion::V3.as_key() || name == api::ApiVersion::V4.as_key()
+                })
+        })
         .unwrap_or_else(|error| tracing::warn!("cannot clean the API cache: {error}"));
+    }
 
-    let Some(entries) = store::cached_file_list(api) else {
-        return;
-    };
-    let uids: std::collections::HashSet<String> =
-        entries.into_iter().map(|entry| entry.uid).collect();
+    for version in [api::ApiVersion::V3, api::ApiVersion::V4] {
+        let api = api_root.join(version.as_key());
+        if !api.is_dir() {
+            continue;
+        }
 
-    core_clean::retain(&api.join(store::DETAILS), |path| {
-        path.file_stem()
-            .and_then(|stem| stem.to_str())
-            .is_some_and(|uid| uids.contains(uid))
-    })
-    .unwrap_or_else(|error| tracing::warn!("cannot clean the filedetails cache: {error}"));
+        core_clean::retain(&api, store::is_cache_entry)
+            .unwrap_or_else(|error| tracing::warn!("cannot clean the API cache: {error}"));
+
+        let Some(entries) = store::cached_file_list(&api, version) else {
+            continue;
+        };
+        let uids: std::collections::HashSet<String> =
+            entries.into_iter().map(|entry| entry.uid).collect();
+
+        core_clean::retain(&api.join(store::DETAILS), |path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|uid| uids.contains(uid))
+        })
+        .unwrap_or_else(|error| tracing::warn!("cannot clean the filedetails cache: {error}"));
+    }
 }
 
 fn theme() -> Theme {
@@ -314,6 +332,7 @@ enum Message {
     UpdateDisable,
     UpdatePricesToggled,
     PriceRegionSelected(ttc::Region),
+    DiscontinuedToggled,
     OpenLogsFolder,
     OpenConfigFolder,
     OpenCacheFolder,
@@ -408,8 +427,13 @@ impl Manager {
 
         log::banner();
 
-        let api_dir: Arc<Path> = Arc::from(paths.cache_dir.join(store::DIRECTORY));
-        let (screen, task) = match api::Client::new() {
+        let api_dir: Arc<Path> = Arc::from(
+            paths
+                .cache_dir
+                .join(store::DIRECTORY)
+                .join(config.api_version.as_key()),
+        );
+        let (screen, task) = match api::Client::new(config.api_version) {
             Ok(client) => {
                 let (catalogue, task) = catalogue::Catalogue::new(client, api_dir, theme());
                 (Screen::Catalogue(catalogue), task.map(Message::Catalogue))
@@ -901,6 +925,40 @@ impl Manager {
                     "TTC price region changed",
                 );
                 Task::none()
+            }
+            Message::DiscontinuedToggled => {
+                self.menu = None;
+                self.config.api_version = match self.config.api_version {
+                    api::ApiVersion::V3 => api::ApiVersion::V4,
+                    api::ApiVersion::V4 => api::ApiVersion::V3,
+                };
+                save(
+                    &self.config,
+                    &self.paths.config_file,
+                    &format!(
+                        "catalogue source changed to {}",
+                        self.config.api_version.as_key()
+                    ),
+                );
+
+                let api_dir: Arc<Path> = Arc::from(
+                    self.paths
+                        .cache_dir
+                        .join(store::DIRECTORY)
+                        .join(self.config.api_version.as_key()),
+                );
+                match api::Client::new(self.config.api_version) {
+                    Ok(client) => {
+                        let (catalogue, task) = catalogue::Catalogue::new(client, api_dir, theme());
+                        self.screen = Screen::Catalogue(catalogue);
+                        task.map(Message::Catalogue)
+                    }
+                    Err(error) => {
+                        tracing::error!("cannot create HTTP client: {error}");
+                        self.screen = Screen::Unavailable(error.to_string());
+                        Task::none()
+                    }
+                }
             }
             Message::OpenLogsFolder => {
                 self.menu = None;
@@ -1629,6 +1687,13 @@ impl Manager {
                             .then_some(Message::ClearLogsRequested),
                         checked: false,
                     }),
+                    menu::Entry::Separator,
+                    menu::Entry::Header(fl!("menu-experimental")),
+                    menu::Entry::Item(menu::Item {
+                        label: fl!("menu-discontinued"),
+                        on_press: idle.then_some(Message::DiscontinuedToggled),
+                        checked: self.config.api_version == api::ApiVersion::V4,
+                    }),
                 ];
 
                 vec![first, second]
@@ -2064,7 +2129,7 @@ fn acquire_instance_lock(paths: &paths::Paths) -> Instance {
 }
 
 async fn check_updates() -> Result<Option<String>, String> {
-    let client = api::Client::new().map_err(|error| error.to_string())?;
+    let client = api::Client::new(api::ApiVersion::default()).map_err(|error| error.to_string())?;
     let text = client
         .text(&update::version_url())
         .await

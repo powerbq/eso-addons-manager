@@ -134,6 +134,8 @@ update-dont-ask = Ne plus demander
 update-up-to-date = Vous avez la dernière version.
 update-check-failed = Impossible de vérifier les mises à jour.
 
+menu-experimental = Expérimental
+menu-discontinued = Addons obsolètes
 menu-ttc-prices = Prix TTC
 menu-update-prices = Mettre à jour les prix
 region-eu = Europe

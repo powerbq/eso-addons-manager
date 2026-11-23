@@ -1,8 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::api::{CategoryEntry, FileListEntry};
+use crate::api::{CategoryEntry, FileDetails, FileListEntry, v4};
 use crate::config::Config;
+
+const DISCONTINUED_CATEGORY: &str = "157";
 
 #[derive(Debug, Clone)]
 pub struct Addon {
@@ -54,10 +56,92 @@ impl From<FileListEntry> for Addon {
     }
 }
 
+impl From<v4::FileListEntry> for Addon {
+    fn from(entry: v4::FileListEntry) -> Self {
+        let directories = top_level_dirs(entry.addons);
+
+        Self {
+            name_key: entry.title.to_lowercase(),
+            author_key: entry.author.to_lowercase(),
+            directory_keys: directories
+                .iter()
+                .map(|directory| directory.to_lowercase())
+                .collect(),
+            uid: entry.id,
+            name: entry.title,
+            author: entry.author,
+            version: entry.version,
+            category_id: entry.category_id,
+            info_url: entry.file_info_uri,
+            updated_ms: entry.last_update,
+            downloads: entry.downloads,
+            monthly_downloads: entry.downloads_monthly,
+            favourites: entry.favorites,
+            directories,
+            screenshots: Vec::new(),
+        }
+    }
+}
+
+fn top_level_dirs(addons: Vec<v4::AddonEntry>) -> Vec<String> {
+    let mut directories = Vec::new();
+    for addon in addons {
+        let top = addon.path.split('/').next().unwrap_or(&addon.path);
+        if !top.is_empty() && !directories.iter().any(|existing| existing == top) {
+            directories.push(top.to_owned());
+        }
+    }
+
+    directories
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Screenshot {
     pub thumbnail: String,
     pub full: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Details {
+    pub version: String,
+    pub md5: String,
+    pub download_url: String,
+    pub description: String,
+    pub changelog: String,
+    pub screenshots: Vec<Screenshot>,
+}
+
+impl From<FileDetails> for Details {
+    fn from(details: FileDetails) -> Self {
+        Self {
+            version: details.version,
+            md5: details.md5,
+            download_url: details.download_url,
+            description: details.description,
+            changelog: details.changelog,
+            screenshots: Vec::new(),
+        }
+    }
+}
+
+impl From<v4::FileDetails> for Details {
+    fn from(details: v4::FileDetails) -> Self {
+        Self {
+            version: details.version,
+            md5: details.checksum,
+            download_url: details.download_uri,
+            description: details.description,
+            changelog: details.change_log,
+            screenshots: details
+                .images
+                .into_iter()
+                .map(|image| Screenshot {
+                    thumbnail: image.thumb_url,
+                    full: image.image_url,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +154,17 @@ pub struct Category {
 
 impl From<CategoryEntry> for Category {
     fn from(entry: CategoryEntry) -> Self {
+        Self {
+            id: entry.id,
+            title: entry.title.trim().to_owned(),
+            icon_url: entry.icon_url,
+            parent_ids: entry.parent_ids,
+        }
+    }
+}
+
+impl From<v4::CategoryEntry> for Category {
+    fn from(entry: v4::CategoryEntry) -> Self {
         Self {
             id: entry.id,
             title: entry.title.trim().to_owned(),
@@ -192,21 +287,21 @@ pub struct Catalogue {
 
 impl Catalogue {
     pub fn new(
-        entries: impl IntoIterator<Item = FileListEntry>,
-        categories: impl IntoIterator<Item = CategoryEntry>,
+        addons: impl IntoIterator<Item = Addon>,
+        categories: impl IntoIterator<Item = Category>,
     ) -> Self {
-        let addons = entries.into_iter().map(Addon::from).collect();
+        let addons = addons.into_iter().collect();
 
-        let mut categories: Vec<Category> = categories.into_iter().map(Category::from).collect();
+        let mut categories: Vec<Category> = categories.into_iter().collect();
         categories
             .sort_by_cached_key(|category| (category.group_key(), category.title.to_lowercase()));
 
         Self { addons, categories }
     }
 
-    pub fn with_addons(&self, entries: impl IntoIterator<Item = FileListEntry>) -> Self {
+    pub fn with_addons(&self, addons: impl IntoIterator<Item = Addon>) -> Self {
         Self {
-            addons: entries.into_iter().map(Addon::from).collect(),
+            addons: addons.into_iter().collect(),
             categories: self.categories.clone(),
         }
     }
@@ -228,6 +323,14 @@ impl Catalogue {
         for addon in &self.addons {
             for directory in &addon.directories {
                 providers.entry(directory).or_default().push(addon);
+            }
+        }
+        for candidates in providers.values_mut() {
+            if candidates
+                .iter()
+                .any(|addon| addon.category_id != DISCONTINUED_CATEGORY)
+            {
+                candidates.retain(|addon| addon.category_id != DISCONTINUED_CATEGORY);
             }
         }
         providers
@@ -307,7 +410,11 @@ impl Catalogue {
 mod tests {
     use super::*;
 
-    fn entry(
+    fn entry(uid: &str, name: &str, author: &str, category: &str, stats: [u64; 4]) -> Addon {
+        file_entry(uid, name, author, category, stats).into()
+    }
+
+    fn file_entry(
         uid: &str,
         name: &str,
         author: &str,
@@ -364,13 +471,14 @@ mod tests {
         )
     }
 
-    fn category(id: &str, title: &str, parent_ids: &[&str]) -> CategoryEntry {
+    fn category(id: &str, title: &str, parent_ids: &[&str]) -> Category {
         CategoryEntry {
             id: id.into(),
             title: title.into(),
             icon_url: String::new(),
             parent_ids: parent_ids.iter().map(|id| (*id).to_owned()).collect(),
         }
+        .into()
     }
 
     fn uids(catalogue: &Catalogue, query: &Query) -> Vec<String> {
@@ -464,10 +572,10 @@ mod tests {
     fn searches_folders_too() {
         let catalogue = Catalogue::new(
             [
-                FileListEntry {
+                Addon::from(FileListEntry {
                     directories: vec!["ProvisionsTeamFormation".into(), "LibStub".into()],
-                    ..entry("1", "Teammate Radar", "Provision", "1", [0; 4])
-                },
+                    ..file_entry("1", "Teammate Radar", "Provision", "1", [0; 4])
+                }),
                 entry("2", "Other", "Someone", "1", [0; 4]),
             ],
             [],
@@ -478,6 +586,30 @@ mod tests {
         };
 
         assert_eq!(uids(&catalogue, &query), ["1"]);
+    }
+
+    #[test]
+    fn discontinued_is_a_last_resort_provider() {
+        let current = Addon::from(FileListEntry {
+            directories: vec!["SuperStar".into()],
+            ..file_entry("3648", "SuperStar", "author", "33", [0; 4])
+        });
+        let discontinued = Addon::from(FileListEntry {
+            directories: vec!["SuperStar".into()],
+            ..file_entry("2961", "SuperStar", "author", "157", [0; 4])
+        });
+        let orphan = Addon::from(FileListEntry {
+            directories: vec!["OldLib".into()],
+            ..file_entry("99", "OldLib", "author", "157", [0; 4])
+        });
+        let catalogue = Catalogue::new([current, discontinued, orphan], []);
+
+        let providers = catalogue.providers();
+
+        assert_eq!(providers["SuperStar"].len(), 1);
+        assert_eq!(providers["SuperStar"][0].uid, "3648");
+        assert_eq!(providers["OldLib"].len(), 1);
+        assert_eq!(providers["OldLib"][0].uid, "99");
     }
 
     #[test]
