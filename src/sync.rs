@@ -81,8 +81,6 @@ pub struct Summary {
     failed: Vec<(String, String)>,
     missing: Vec<String>,
     unknown: Vec<(String, String)>,
-    written: usize,
-    deleted: usize,
     ttc: Option<ttc::Outcome>,
 }
 
@@ -162,8 +160,6 @@ pub fn summarise(
         }
     }
 
-    let (written, deleted) = if applied { file_counts(plan) } else { (0, 0) };
-
     Summary {
         applied,
         changes,
@@ -178,8 +174,6 @@ pub fn summarise(
             .iter()
             .map(|uid| (name(uid), uid.clone()))
             .collect(),
-        written,
-        deleted,
         ttc: plan.ttc.clone(),
     }
 }
@@ -294,31 +288,48 @@ pub fn log(plan: &Plan, summary: &Summary) {
         tracing::warn!("not in the catalogue: {name} ({uid})");
     }
 
+    let mut created = 0;
+    let mut created_dirs = 0;
+    let mut updated = 0;
+    let mut removed_files = 0;
+    let mut removed_dirs = 0;
     if summary.applied {
         for action in &plan.actions {
-            tracing::debug!("{action:?}");
+            match action {
+                Action::WriteFile {
+                    path,
+                    replace: false,
+                    ..
+                } => {
+                    created += 1;
+                    tracing::info!("created {path}");
+                }
+                Action::WriteFile {
+                    path,
+                    replace: true,
+                    ..
+                } => {
+                    updated += 1;
+                    tracing::info!("updated {path}");
+                }
+                Action::RemoveFile(path) => {
+                    removed_files += 1;
+                    tracing::info!("removed {path}");
+                }
+                Action::RemoveDirectory(path) => {
+                    removed_dirs += 1;
+                    tracing::info!("removed dir {path}");
+                }
+                Action::CreateDirectory(path) => {
+                    created_dirs += 1;
+                    tracing::info!("created dir {path}");
+                }
+            }
         }
     }
     tracing::info!(
-        "sync finished: {} files written, {} removed",
-        summary.written,
-        summary.deleted
+        "sync finished: created {created} files, {created_dirs} dirs, updated {updated}, removed {removed_files} files, {removed_dirs} dirs"
     );
-}
-
-fn file_counts(plan: &Plan) -> (usize, usize) {
-    let written = plan
-        .actions
-        .iter()
-        .filter(|action| matches!(action, Action::WriteFile { .. }))
-        .count();
-    let deleted = plan
-        .actions
-        .iter()
-        .filter(|action| matches!(action, Action::RemoveFile(_)))
-        .count();
-
-    (written, deleted)
 }
 
 fn run(
