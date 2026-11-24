@@ -126,6 +126,7 @@ migrate-open-folders = Ordner öffnen
 
 menu-updates = Updates
 menu-check-on-launch = Beim Start prüfen
+menu-notify-prereleases = Vorabversionen einbeziehen
 menu-check-now = Jetzt prüfen
 update-title = Update
 update-available = Eine neue Version ist verfügbar.

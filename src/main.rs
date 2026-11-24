@@ -324,6 +324,7 @@ enum Message {
     LanguageSelected(i18n::Language),
     LogToFileToggled,
     CheckOnLaunchToggled,
+    NotifyPrereleasesToggled,
     CheckUpdatesNow,
     UpdateChecked {
         result: Result<Option<update::Available>, String>,
@@ -513,7 +514,7 @@ impl Manager {
         }
 
         let updates = if manager.config.check_for_updates {
-            let beta = false;
+            let beta = manager.config.notify_prereleases;
             Task::perform(check_updates(beta), |result| Message::UpdateChecked {
                 result,
                 manual: false,
@@ -850,10 +851,20 @@ impl Manager {
                 save(&self.config, &self.paths.config_file, reason);
                 Task::none()
             }
+            Message::NotifyPrereleasesToggled => {
+                self.config.notify_prereleases = !self.config.notify_prereleases;
+                let reason = if self.config.notify_prereleases {
+                    "prerelease notifications enabled"
+                } else {
+                    "prerelease notifications disabled"
+                };
+                save(&self.config, &self.paths.config_file, reason);
+                Task::none()
+            }
             Message::CheckUpdatesNow => {
                 self.menu = None;
                 tracing::info!("checking for updates");
-                let beta = false;
+                let beta = self.config.notify_prereleases;
                 Task::perform(check_updates(beta), |result| Message::UpdateChecked {
                     result,
                     manual: true,
@@ -1603,6 +1614,11 @@ impl Manager {
                         label: fl!("menu-check-on-launch"),
                         on_press: Some(Message::CheckOnLaunchToggled),
                         checked: self.config.check_for_updates,
+                    }),
+                    menu::Entry::Item(menu::Item {
+                        label: fl!("menu-notify-prereleases"),
+                        on_press: Some(Message::NotifyPrereleasesToggled),
+                        checked: self.config.notify_prereleases,
                     }),
                     menu::Entry::Item(menu::Item {
                         label: fl!("menu-check-now"),

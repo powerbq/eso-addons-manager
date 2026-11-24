@@ -25,6 +25,7 @@ const SYNC_ON_LAUNCH: &str = "SyncOnLaunch";
 const LANGUAGE: &str = "Language";
 const LOG_TO_FILE: &str = "LogToFile";
 const CHECK_FOR_UPDATES: &str = "CheckForUpdates";
+const NOTIFY_PRERELEASES: &str = "NotifyPrereleases";
 const API_VERSION: &str = "ApiVersion";
 const UPDATE_PRICES: &str = "UpdatePrices";
 const PRICE_REGION: &str = "PriceRegion";
@@ -60,6 +61,7 @@ pub struct Config {
     pub language: String,
     pub log_to_file: bool,
     pub check_for_updates: bool,
+    pub notify_prereleases: bool,
     pub api_version: ApiVersion,
     pub update_prices: bool,
     pub price_region: Region,
@@ -81,6 +83,7 @@ impl Default for Config {
             language: String::new(),
             log_to_file: true,
             check_for_updates: true,
+            notify_prereleases: false,
             api_version: ApiVersion::default(),
             update_prices: true,
             price_region: Region::default(),
@@ -158,6 +161,7 @@ impl Config {
                             LANGUAGE => config.language = value,
                             LOG_TO_FILE => config.log_to_file = value == "true",
                             CHECK_FOR_UPDATES => config.check_for_updates = value == "true",
+                            NOTIFY_PRERELEASES => config.notify_prereleases = value == "true",
                             API_VERSION => {
                                 config.api_version =
                                     ApiVersion::from_key(&value).unwrap_or_default()
@@ -231,6 +235,15 @@ impl Config {
             GENERAL,
             CHECK_FOR_UPDATES,
             if self.check_for_updates {
+                "true"
+            } else {
+                "false"
+            },
+        );
+        set(
+            GENERAL,
+            NOTIFY_PRERELEASES,
+            if self.notify_prereleases {
                 "true"
             } else {
                 "false"
@@ -551,6 +564,20 @@ mod tests {
         };
         let text = config.to_ini_string();
         assert!(text.contains("CheckForUpdates = false"));
+        assert_eq!(Config::parse(&text).unwrap(), config);
+    }
+
+    #[test]
+    fn notify_prereleases_defaults_off_and_round_trips() {
+        assert!(!Config::default().notify_prereleases);
+        assert!(!Config::parse("").unwrap().notify_prereleases);
+
+        let config = Config {
+            notify_prereleases: true,
+            ..Config::default()
+        };
+        let text = config.to_ini_string();
+        assert!(text.contains("NotifyPrereleases = true"));
         assert_eq!(Config::parse(&text).unwrap(), config);
     }
 
