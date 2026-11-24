@@ -3,8 +3,7 @@ name: Build
 on:
   push:
     tags:
-      - current
-      - testing
+      - 'v*'
 
 permissions:
   contents: write
@@ -237,28 +236,17 @@ jobs:
           pattern: dist-*
           merge-multiple: true
           path: dist
-      - name: Version file and checksums
+      - name: Checksums
         run: |
-          sed -nE 's/^version *= *"([^"]+)".*/\1/p' Cargo.toml | head -1 > dist/version.txt
           cd dist
-          mapfile -t assets < <(find . -maxdepth 1 -type f ! -name 'version.txt' -printf '%P\n' | sort)
+          mapfile -t assets < <(find . -maxdepth 1 -type f -printf '%P\n' | sort)
           sha256sum "${assets[@]}" > SHA256SUMS
-      - name: Clear old release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="${{ github.ref_name }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release view "$tag" --json assets --jq '.assets[].name' \
-              | while IFS= read -r asset; do
-                  [ -n "$asset" ] && gh release delete-asset "$tag" "$asset" --yes
-                done
-          fi
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          prerelease: ${{ github.ref_name == 'testing' }}
-          make_latest: ${{ github.ref_name == 'current' }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
+          generate_release_notes: true
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

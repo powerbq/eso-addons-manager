@@ -1,0 +1,55 @@
+name: Auto-tag
+
+# The manifest is the single source of truth for the version. Bump it (and Cargo.lock), push to
+# main, and this creates the release tag vX.Y.Z (or vX.Y.Z-rc.N for a pre-release) from that version
+# under a token, so the Build workflow fires on the tag. Runs only when Cargo.toml changes.
+on:
+  push:
+    branches: [main]
+    paths: ['Cargo.toml']
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                       # all tags, for the SemVer max guard
+          token: ${{ secrets.TAG_PUSH_TOKEN }} # PAT/App token, so the pushed tag triggers Build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tag the manifest version
+        run: |
+          set -euo pipefail
+
+          # Validity gate: the manifest parses and Cargo.lock is in sync (errors otherwise).
+          cargo metadata --locked --format-version 1 >/dev/null
+
+          version="$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' Cargo.toml | head -1)"
+          tag="v${version}"
+          echo "manifest version: ${version} -> ${tag}"
+
+          # Already tagged -> nothing to do (idempotent across re-runs and unrelated pushes).
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "tag ${tag} already exists; nothing to do"
+            exit 0
+          fi
+
+          # Strong guard: the manifest version must be the strictly highest by SemVer precedence.
+          # Guards against a down-bump or reusing a burned number, and enforces strictly linear
+          # releases (no back-porting an older line). First release (no v* tags yet) passes.
+          existing="$(git tag --list 'v*' | sed 's/^v//')"
+          if [ -n "${existing}" ]; then
+            top="$(npx -y semver@7 ${existing} "${version}" | tail -1)"
+            if [ "${top}" != "${version}" ]; then
+              echo "::error::version ${version} is not strictly greater than the highest existing tag (${top})"
+              exit 1
+            fi
+          fi
+
+          git tag "${tag}"
+          git push origin "${tag}"
+          echo "pushed ${tag}"
