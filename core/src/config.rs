@@ -73,6 +73,9 @@ pub struct Config {
     pub favourites: BTreeMap<String, String>,
     pub selected_libraries: BTreeMap<String, String>,
     pub exclusions: Vec<String>,
+    // Runtime-only (never read from the ini): when false, the update keys are omitted on save, so a
+    // manager launched under `--no-update-check` leaves no dead update settings behind.
+    pub write_update_keys: bool,
 }
 
 impl Default for Config {
@@ -95,6 +98,7 @@ impl Default for Config {
             favourites: BTreeMap::new(),
             selected_libraries: BTreeMap::new(),
             exclusions: Vec::new(),
+            write_update_keys: true,
         }
     }
 }
@@ -231,24 +235,26 @@ impl Config {
             LOG_TO_FILE,
             if self.log_to_file { "true" } else { "false" },
         );
-        set(
-            GENERAL,
-            CHECK_FOR_UPDATES,
-            if self.check_for_updates {
-                "true"
-            } else {
-                "false"
-            },
-        );
-        set(
-            GENERAL,
-            NOTIFY_PRERELEASES,
-            if self.notify_prereleases {
-                "true"
-            } else {
-                "false"
-            },
-        );
+        if self.write_update_keys {
+            set(
+                GENERAL,
+                CHECK_FOR_UPDATES,
+                if self.check_for_updates {
+                    "true"
+                } else {
+                    "false"
+                },
+            );
+            set(
+                GENERAL,
+                NOTIFY_PRERELEASES,
+                if self.notify_prereleases {
+                    "true"
+                } else {
+                    "false"
+                },
+            );
+        }
         set(GENERAL, API_VERSION, self.api_version.as_key());
 
         set(CATALOGUE, SORT, self.sort.as_key());
@@ -579,6 +585,19 @@ mod tests {
         let text = config.to_ini_string();
         assert!(text.contains("NotifyPrereleases = true"));
         assert_eq!(Config::parse(&text).unwrap(), config);
+    }
+
+    #[test]
+    fn update_keys_omitted_when_not_writing_them() {
+        let config = Config {
+            write_update_keys: false,
+            ..Config::default()
+        };
+        let text = config.to_ini_string();
+        assert!(!text.contains("CheckForUpdates"));
+        assert!(!text.contains("NotifyPrereleases"));
+        // Parsing restores the runtime default (true); the saved file simply carries no update keys.
+        assert!(Config::parse(&text).unwrap().write_update_keys);
     }
 
     #[test]

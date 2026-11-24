@@ -173,6 +173,13 @@ pub fn main() -> iced::Result {
             .unwrap_or_else(|error| tracing::warn!("cannot clean the run directory: {error}"));
     }
 
+    // The updater launches the manager with `--no-update-check`: it has already applied the channel's
+    // update, so the in-app check is redundant and the whole update section is switched off.
+    let update_ui = !std::env::args().any(|arg| arg == "--no-update-check");
+    if !update_ui {
+        tracing::info!("launched with --no-update-check: in-app update checks are off");
+    }
+
     let records = Mutex::new(Some(receiver));
     let conflict = Mutex::new(conflict);
 
@@ -186,6 +193,7 @@ pub fn main() -> iced::Result {
                     .lock()
                     .ok()
                     .and_then(|mut conflict| conflict.take()),
+                update_ui,
             )
         },
         Manager::update,
@@ -218,6 +226,7 @@ struct Manager {
     frame: Instant,
     sync_since: Option<Instant>,
     sync_on_launch_pending: bool,
+    update_ui: bool,
     pending_update: bool,
     update_page: Option<String>,
     synced_addons: BTreeSet<String>,
@@ -374,12 +383,13 @@ impl Manager {
         file_log: log::FileLog,
         paths: paths::Paths,
         conflict: Option<migrate::Conflict>,
+        update_ui: bool,
     ) -> (Self, Task<Message>) {
         let logging = records.map_or_else(Task::none, |records| {
             Task::run(records.ready_chunks(LOG_CHUNK), Message::Logged)
         });
 
-        let config = match Config::load(&paths.config_file) {
+        let mut config = match Config::load(&paths.config_file) {
             Ok(config) => {
                 file_log.configure(config.log_to_file);
                 config
@@ -400,6 +410,7 @@ impl Manager {
                     frame: Instant::now(),
                     sync_since: None,
                     sync_on_launch_pending: false,
+                    update_ui,
                     pending_update: false,
                     update_page: None,
                     synced_addons: BTreeSet::new(),
@@ -429,6 +440,19 @@ impl Manager {
         };
 
         log::banner();
+
+        // Under `--no-update-check` the update section is gone, so its settings must not linger: stop
+        // writing the keys, and strip any left over from a past direct launch.
+        if !update_ui {
+            config.write_update_keys = false;
+            if update_keys_present(&paths.config_file) {
+                save(
+                    &config,
+                    &paths.config_file,
+                    "running under --no-update-check: removed update settings",
+                );
+            }
+        }
 
         let api_dir: Arc<Path> = Arc::from(
             paths
@@ -468,6 +492,7 @@ impl Manager {
         let mut manager = Self {
             language,
             sync_on_launch_pending: config.sync_on_launch,
+            update_ui,
             pending_update: false,
             update_page: None,
             synced_addons: config.addons.keys().cloned().collect(),
@@ -513,7 +538,7 @@ impl Manager {
             manager.dialog = Some(Dialog::ChooseFolder { configured: false });
         }
 
-        let updates = if manager.config.check_for_updates {
+        let updates = if manager.update_ui && manager.config.check_for_updates {
             let beta = manager.config.notify_prereleases;
             Task::perform(check_updates(beta), |result| Message::UpdateChecked {
                 result,
@@ -1608,24 +1633,31 @@ impl Manager {
         let has_target = !self.config.target_directory.trim().is_empty();
         let columns = match menu {
             Menu::Settings => {
-                let mut first = vec![
-                    menu::Entry::Header(fl!("menu-updates")),
-                    menu::Entry::Item(menu::Item {
-                        label: fl!("menu-check-on-launch"),
-                        on_press: Some(Message::CheckOnLaunchToggled),
-                        checked: self.config.check_for_updates,
-                    }),
-                    menu::Entry::Item(menu::Item {
-                        label: fl!("menu-notify-prereleases"),
-                        on_press: Some(Message::NotifyPrereleasesToggled),
-                        checked: self.config.notify_prereleases,
-                    }),
-                    menu::Entry::Item(menu::Item {
-                        label: fl!("menu-check-now"),
-                        on_press: Some(Message::CheckUpdatesNow),
-                        checked: false,
-                    }),
-                    menu::Entry::Separator,
+                let mut first = Vec::new();
+                // The whole update section is present only on a direct launch; under `--no-update-check`
+                // (updater-launched) it is gone, not greyed.
+                if self.update_ui {
+                    first.extend([
+                        menu::Entry::Header(fl!("menu-updates")),
+                        menu::Entry::Item(menu::Item {
+                            label: fl!("menu-check-on-launch"),
+                            on_press: Some(Message::CheckOnLaunchToggled),
+                            checked: self.config.check_for_updates,
+                        }),
+                        menu::Entry::Item(menu::Item {
+                            label: fl!("menu-notify-prereleases"),
+                            on_press: Some(Message::NotifyPrereleasesToggled),
+                            checked: self.config.notify_prereleases,
+                        }),
+                        menu::Entry::Item(menu::Item {
+                            label: fl!("menu-check-now"),
+                            on_press: Some(Message::CheckUpdatesNow),
+                            checked: false,
+                        }),
+                        menu::Entry::Separator,
+                    ]);
+                }
+                first.extend([
                     menu::Entry::Header(fl!("menu-ttc-prices")),
                     menu::Entry::Item(menu::Item {
                         label: fl!("menu-update-prices"),
@@ -1644,7 +1676,7 @@ impl Manager {
                     }),
                     menu::Entry::Separator,
                     menu::Entry::Header(fl!("menu-language")),
-                ];
+                ]);
                 first.extend(i18n::LANGUAGES.iter().map(|&language| {
                     menu::Entry::Item(menu::Item {
                         label: language.to_string(),
@@ -2187,4 +2219,10 @@ async fn check_updates(beta: bool) -> Result<Option<update::Available>, String> 
             page: update::stable_page(),
         }))
     }
+}
+
+// Whether the settings file still carries the in-app update keys (left from a past direct launch).
+fn update_keys_present(path: &Path) -> bool {
+    std::fs::read_to_string(path)
+        .is_ok_and(|text| text.contains("CheckForUpdates") || text.contains("NotifyPrereleases"))
 }
