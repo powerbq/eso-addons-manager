@@ -219,6 +219,7 @@ struct Manager {
     sync_since: Option<Instant>,
     sync_on_launch_pending: bool,
     pending_update: bool,
+    update_page: Option<String>,
     synced_addons: BTreeSet<String>,
     recommended: BTreeMap<String, Vec<String>>,
     dependents: BTreeMap<String, Vec<String>>,
@@ -325,7 +326,7 @@ enum Message {
     CheckOnLaunchToggled,
     CheckUpdatesNow,
     UpdateChecked {
-        result: Result<Option<String>, String>,
+        result: Result<Option<update::Available>, String>,
         manual: bool,
     },
     UpdateOpenPage,
@@ -399,6 +400,7 @@ impl Manager {
                     sync_since: None,
                     sync_on_launch_pending: false,
                     pending_update: false,
+                    update_page: None,
                     synced_addons: BTreeSet::new(),
                     recommended: BTreeMap::new(),
                     dependents: BTreeMap::new(),
@@ -466,6 +468,7 @@ impl Manager {
             language,
             sync_on_launch_pending: config.sync_on_launch,
             pending_update: false,
+            update_page: None,
             synced_addons: config.addons.keys().cloned().collect(),
             recommended: BTreeMap::new(),
             dependents: BTreeMap::new(),
@@ -510,7 +513,8 @@ impl Manager {
         }
 
         let updates = if manager.config.check_for_updates {
-            Task::perform(check_updates(), |result| Message::UpdateChecked {
+            let beta = false;
+            Task::perform(check_updates(beta), |result| Message::UpdateChecked {
                 result,
                 manual: false,
             })
@@ -849,15 +853,17 @@ impl Manager {
             Message::CheckUpdatesNow => {
                 self.menu = None;
                 tracing::info!("checking for updates");
-                Task::perform(check_updates(), |result| Message::UpdateChecked {
+                let beta = false;
+                Task::perform(check_updates(beta), |result| Message::UpdateChecked {
                     result,
                     manual: true,
                 })
             }
             Message::UpdateChecked { result, manual } => {
                 match result {
-                    Ok(Some(version)) => {
-                        tracing::info!("update available: {version}");
+                    Ok(Some(available)) => {
+                        tracing::info!("update available: {}", available.version);
+                        self.update_page = Some(available.page);
                         if self.sync_on_launch_pending
                             || self.activity.is_some()
                             || self.dialog.is_some()
@@ -890,7 +896,10 @@ impl Manager {
             }
             Message::UpdateOpenPage => {
                 self.dialog = None;
-                self.confirm_open = Some(update::download_page());
+                self.confirm_open = self
+                    .update_page
+                    .clone()
+                    .or_else(|| Some(update::stable_page()));
                 Task::none()
             }
             Message::UpdateDisable => {
@@ -2128,14 +2137,38 @@ fn acquire_instance_lock(paths: &paths::Paths) -> Instance {
     }
 }
 
-async fn check_updates() -> Result<Option<String>, String> {
+async fn check_updates(beta: bool) -> Result<Option<update::Available>, String> {
     let client = api::Client::new(api::ApiVersion::default()).map_err(|error| error.to_string())?;
-    let text = client
-        .text(&update::version_url())
-        .await
-        .map_err(|error| error.to_string())?;
-    if text.trim().is_empty() {
-        return Err("version.txt is empty".to_owned());
+
+    if beta {
+        // Beta mode: the GitHub API, picking the newest release by semver (pre-releases included).
+        let body = client
+            .text(update::releases_api())
+            .await
+            .map_err(|error| error.to_string())?;
+        let releases: Vec<update::Release> =
+            serde_json::from_str(&body).map_err(|error| error.to_string())?;
+        let Some(tag) = update::newest(&releases) else {
+            return Ok(None);
+        };
+        let version = tag.strip_prefix('v').unwrap_or(tag);
+        Ok(update::is_newer(version).then(|| update::Available {
+            version: version.to_owned(),
+            page: update::tag_page(tag),
+        }))
+    } else {
+        // Stable mode: the GitHub API `releases/latest` — the newest non-draft, non-prerelease.
+        let body = client
+            .text(&update::stable_latest_api())
+            .await
+            .map_err(|error| error.to_string())?;
+        let release: update::Release =
+            serde_json::from_str(&body).map_err(|error| error.to_string())?;
+        let tag = release.tag_name.as_str();
+        let version = tag.strip_prefix('v').unwrap_or(tag);
+        Ok(update::is_newer(version).then(|| update::Available {
+            version: version.to_owned(),
+            page: update::stable_page(),
+        }))
     }
-    Ok(update::available(&text))
 }
