@@ -10,7 +10,7 @@ options=('!debug')
 source=()
 
 pkgver() {
-    sed -nE 's/^version *= *"([^"]+)".*/\1/p' "$startdir/../../Cargo.toml" | head -1
+    sed -nE 's/^version *= *"([^"]+)".*/\1/p' "$startdir/../../Cargo.toml" | head -1 | sed 's/-/~/'
 }
 
 package() {

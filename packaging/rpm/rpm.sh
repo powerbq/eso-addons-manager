@@ -11,7 +11,8 @@ cd "$(dirname "$0")/../.."
 out=target/dist/rpm
 mkdir -p "$out"
 
-cargo generate-rpm
+version="$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' Cargo.toml | head -1 | sed 's/-/~/')"
+cargo generate-rpm --set-metadata "version = \"$version\""
 
 for pkg in target/generate-rpm/*.rpm; do
     [ -f "$pkg" ] || continue

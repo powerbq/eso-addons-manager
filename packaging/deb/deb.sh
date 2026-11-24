@@ -12,7 +12,8 @@ command -v dpkg-shlibdeps >/dev/null 2>&1 || { echo "deb: dpkg-dev not found (ne
 out=target/dist/deb
 mkdir -p "$out"
 
-cargo deb --no-build
+version="$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' Cargo.toml | head -1 | sed 's/-/~/')"
+cargo deb --no-build --deb-version "$version"
 
 for pkg in target/debian/*.deb; do
     [ -f "$pkg" ] || continue
