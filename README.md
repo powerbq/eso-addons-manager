@@ -18,7 +18,7 @@ language and switchable in-app.
 
 ## Download
 
-Latest release: <https://github.com/powerbq/eso-addons-manager/releases/tag/current>
+Latest release: <https://github.com/powerbq/eso-addons-manager/releases/latest>
 
 Pick an **installer** for your system (recommended), or a **standalone** zip:
 
@@ -184,9 +184,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File patches\cargo-patched.ps1 ru
 
 The GitHub Actions workflow mirrors this split: per-OS **build** jobs compile the
 binary, **packager** jobs (one per format) each depend on their build job and run the
-matching script, and a final **release** job gathers every artifact, writes
-`version.txt` and a combined `SHA256SUMS`, and publishes them when the `current` or
-`testing` tag is pushed.
+matching script, and a final **release** job gathers every artifact, generates a combined `SHA256SUMS`, and
+publishes them as a GitHub release when a per-version `vX.Y.Z` tag is pushed. That tag
+is created automatically by a separate workflow from the `Cargo.toml` version on each
+push to `main`; a `-rc.N` suffix marks the release a pre-release.
 
 Diagnostics are shown on the Log tab and written to the console; set `RUST_LOG`
 (for example `RUST_LOG=debug`) for more detail. On-disk file logging and a shortcut
