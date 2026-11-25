@@ -52,6 +52,7 @@ sort-updated = Última actualización
 sort-downloads = Descargas totales
 sort-monthly-downloads = Descargas del mes
 sort-favourites = Favoritos
+sort-status = Estado de instalación
 
 addon-version = versión { $version }
 add-favourite = Añadir a favoritos

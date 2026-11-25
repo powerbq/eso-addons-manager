@@ -936,13 +936,14 @@ impl Loaded {
 pub struct SortOption(SortOrder);
 
 impl SortOption {
-    const ALL: [SortOption; 6] = [
+    const ALL: [SortOption; 7] = [
         SortOption(SortOrder::Name),
         SortOption(SortOrder::Author),
         SortOption(SortOrder::Updated),
         SortOption(SortOrder::Downloads),
         SortOption(SortOrder::MonthlyDownloads),
         SortOption(SortOrder::Favourites),
+        SortOption(SortOrder::Status),
     ];
 }
 
@@ -955,6 +956,7 @@ impl SortOption {
             SortOrder::Downloads => icon::downloads(),
             SortOrder::MonthlyDownloads => icon::monthly_downloads(),
             SortOrder::Favourites => icon::favourites(),
+            SortOrder::Status => icon::status(),
         }
     }
 }
@@ -968,6 +970,7 @@ impl fmt::Display for SortOption {
             SortOrder::MonthlyDownloads => fl!("sort-monthly-downloads"),
             SortOrder::Favourites => fl!("sort-favourites"),
             SortOrder::Updated => fl!("sort-updated"),
+            SortOrder::Status => fl!("sort-status"),
         })
     }
 }

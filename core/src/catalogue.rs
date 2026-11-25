@@ -193,20 +193,25 @@ pub enum SortOrder {
     #[default]
     MonthlyDownloads,
     Favourites,
+    Status,
 }
 
 impl SortOrder {
-    pub const ALL: [SortOrder; 6] = [
+    pub const ALL: [SortOrder; 7] = [
         SortOrder::Name,
         SortOrder::Author,
         SortOrder::Updated,
         SortOrder::Downloads,
         SortOrder::MonthlyDownloads,
         SortOrder::Favourites,
+        SortOrder::Status,
     ];
 
     pub fn is_ascending(self) -> bool {
-        matches!(self, SortOrder::Name | SortOrder::Author)
+        matches!(
+            self,
+            SortOrder::Name | SortOrder::Author | SortOrder::Status
+        )
     }
 
     pub fn as_key(self) -> &'static str {
@@ -217,6 +222,7 @@ impl SortOrder {
             SortOrder::Downloads => "Downloads",
             SortOrder::MonthlyDownloads => "MonthlyDownloads",
             SortOrder::Favourites => "Favourites",
+            SortOrder::Status => "Status",
         }
     }
 
@@ -232,7 +238,22 @@ impl SortOrder {
             SortOrder::MonthlyDownloads => b.monthly_downloads.cmp(&a.monthly_downloads),
             SortOrder::Favourites => b.favourites.cmp(&a.favourites),
             SortOrder::Updated => b.updated_ms.cmp(&a.updated_ms),
+            // Status depends on config + index, which `compare` does not have, so it is
+            // handled in `search` instead; keep the row order stable here.
+            SortOrder::Status => Ordering::Equal,
         }
+    }
+}
+
+// Install-status rank for `SortOrder::Status`: directly installed first (0), then dependencies
+// installed automatically (1), then everything else (2). Matches the catalogue's dependency filter.
+fn status_rank(addon: &Addon, config: &Config, index: &cache::Index) -> u8 {
+    if config.addons.contains_key(&addon.uid) {
+        0
+    } else if index.contains_key(&addon.uid) {
+        1
+    } else {
+        2
     }
 }
 
@@ -396,7 +417,12 @@ impl Catalogue {
         matches.sort_by(|&a, &b| {
             let (a, b) = (&self.addons[a], &self.addons[b]);
 
-            let ordering = query.sort.compare(a, b);
+            let ordering = match query.sort {
+                SortOrder::Status => {
+                    status_rank(a, config, index).cmp(&status_rank(b, config, index))
+                }
+                sort => sort.compare(a, b),
+            };
             let ordering = if query.reversed {
                 ordering.reverse()
             } else {
@@ -553,6 +579,41 @@ mod tests {
 
         assert_eq!(reversed(SortOrder::Name), ["2", "1", "3", "4"]);
         assert_eq!(reversed(SortOrder::Downloads), ["4", "2", "1", "3"]);
+    }
+
+    #[test]
+    fn sorts_by_install_status() {
+        let catalogue = catalogue();
+        // "1" installed directly (rank 0), "3" on disk but never chosen (dependency, rank 1),
+        // "2"/"4" neither (rank 2). Within a rank the name fallback decides.
+        let config = Config {
+            addons: [("1".to_owned(), String::new())].into(),
+            ..Config::default()
+        };
+        let mut index = cache::Index::default();
+        index.insert("1".to_owned(), cache::Archive::default());
+        index.insert("3".to_owned(), cache::Archive::default());
+
+        let ranked = |reversed| {
+            catalogue
+                .search(
+                    &Query {
+                        sort: SortOrder::Status,
+                        reversed,
+                        ..Query::default()
+                    },
+                    &config,
+                    &index,
+                )
+                .into_iter()
+                .map(|index| catalogue.addon(index).unwrap().uid.clone())
+                .collect::<Vec<_>>()
+        };
+
+        // installed, then dependency, then the rest (Azurah before Tamriel by name).
+        assert_eq!(ranked(false), ["1", "3", "4", "2"]);
+        // reversed flips the status groups; the name fallback within a group stays ascending.
+        assert_eq!(ranked(true), ["4", "2", "3", "1"]);
     }
 
     #[test]

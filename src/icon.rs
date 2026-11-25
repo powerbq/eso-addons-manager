@@ -32,6 +32,10 @@ pub fn favourites<'a>() -> Text<'a> {
     icon(glyphs::FAVOURITES)
 }
 
+pub fn status<'a>() -> Text<'a> {
+    icon(glyphs::STATUS)
+}
+
 pub fn ascending<'a>() -> Text<'a> {
     icon(glyphs::ASCENDING)
 }

@@ -6,6 +6,7 @@ pub const UPDATED: Icon = Icon::Clock;
 pub const DOWNLOADS: Icon = Icon::Download;
 pub const MONTHLY_DOWNLOADS: Icon = Icon::Calendar;
 pub const FAVOURITES: Icon = Icon::Star;
+pub const STATUS: Icon = Icon::Layers3;
 pub const ASCENDING: Icon = Icon::MoveUp;
 pub const DESCENDING: Icon = Icon::MoveDown;
 pub const INSTALL: Icon = Icon::CirclePlus;
@@ -18,13 +19,14 @@ pub const CHECKED: Icon = Icon::Check;
 pub const MENU: Icon = Icon::Menu;
 
 #[allow(dead_code)]
-pub const ALL: [Icon; 16] = [
+pub const ALL: [Icon; 17] = [
     NAME,
     AUTHOR,
     UPDATED,
     DOWNLOADS,
     MONTHLY_DOWNLOADS,
     FAVOURITES,
+    STATUS,
     ASCENDING,
     DESCENDING,
     INSTALL,
