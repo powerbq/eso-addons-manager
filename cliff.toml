@@ -94,3 +94,9 @@ topo_order_commits = true
 sort_commits = "oldest"
 # Process submodules commits
 recurse_submodules = false
+
+[bump]
+# Stay in 0.x on breaking changes: a breaking commit bumps the minor (0.y -> 0.y+1.0),
+# not the major, until the project reaches 1.0. After 1.0 a breaking change bumps the
+# major as usual. Matches the project's "major is deferred until 1.0" versioning rule.
+breaking_always_bump_major = false
