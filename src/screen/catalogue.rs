@@ -139,6 +139,7 @@ pub enum Message {
     SearchChanged(String),
     InstalledFilterChanged(Filter),
     FavouritesFilterChanged(Filter),
+    DependenciesFilterChanged(Filter),
     FavouriteToggled(usize),
     InstallToggled(usize),
     SortSelected(SortOption),
@@ -174,6 +175,7 @@ pub enum Action {
         reversed: bool,
         installed: Filter,
         favourites: Filter,
+        dependencies: Filter,
     },
 }
 
@@ -224,7 +226,7 @@ impl Catalogue {
         }
     }
 
-    pub fn update(&mut self, message: Message, config: &Config) -> Action {
+    pub fn update(&mut self, message: Message, config: &Config, index: &cache::Index) -> Action {
         match message {
             Message::Loaded(Ok((entries, categories))) => {
                 let catalogue = eso_addons_manager_core::Catalogue::new(entries, categories);
@@ -234,8 +236,9 @@ impl Catalogue {
                     reversed: config.sort_reversed,
                     installed: config.filter_installed,
                     favourites: config.filter_favourites,
+                    dependencies: config.filter_dependencies,
                 };
-                let results = catalogue.search(&query, config);
+                let results = catalogue.search(&query, config, index);
                 let icons_task = Task::batch(
                     catalogue
                         .categories()
@@ -306,14 +309,14 @@ impl Catalogue {
                     return Action::None;
                 };
 
-                loaded.update(&self.client, &self.api_dir, message, config)
+                loaded.update(&self.client, &self.api_dir, message, config, index)
             }
         }
     }
 
-    pub fn refresh(&mut self, config: &Config) {
+    pub fn refresh(&mut self, config: &Config, index: &cache::Index) {
         if let State::Loaded(loaded) = &mut self.state {
-            loaded.refresh(config);
+            loaded.refresh(config, index);
         }
     }
 
@@ -321,9 +324,10 @@ impl Catalogue {
         &mut self,
         catalogue: eso_addons_manager_core::Catalogue,
         config: &Config,
+        index: &cache::Index,
     ) -> Task<Message> {
         if let State::Loaded(loaded) = &mut self.state {
-            loaded.replace(catalogue, config);
+            loaded.replace(catalogue, config, index);
             return scroll_to(
                 LIST_ID.clone(),
                 scrollable::AbsoluteOffset {
@@ -406,6 +410,7 @@ impl Loaded {
         api: &Arc<Path>,
         message: Message,
         config: &Config,
+        index: &cache::Index,
     ) -> Action {
         match message {
             Message::IconLoaded(category_id, Ok(handle)) => {
@@ -418,17 +423,22 @@ impl Loaded {
             }
             Message::SearchChanged(text) => {
                 self.query.text = text;
-                self.refresh(config);
+                self.refresh(config, index);
                 Action::None
             }
             Message::InstalledFilterChanged(installed) => {
                 self.query.installed = installed;
-                self.refresh(config);
+                self.refresh(config, index);
                 self.persist_query()
             }
             Message::FavouritesFilterChanged(favourites) => {
                 self.query.favourites = favourites;
-                self.refresh(config);
+                self.refresh(config, index);
+                self.persist_query()
+            }
+            Message::DependenciesFilterChanged(dependencies) => {
+                self.query.dependencies = dependencies;
+                self.refresh(config, index);
                 self.persist_query()
             }
             Message::FavouriteToggled(index) => match self.catalogue.addon(index) {
@@ -452,7 +462,7 @@ impl Loaded {
                     self.query.sort = sort;
                     self.query.reversed = false;
                 }
-                self.refresh(config);
+                self.refresh(config, index);
                 self.persist_query()
             }
             Message::AddonSelected(index) => {
@@ -540,8 +550,8 @@ impl Loaded {
         }
     }
 
-    fn refresh(&mut self, config: &Config) {
-        self.results = self.catalogue.search(&self.query, config);
+    fn refresh(&mut self, config: &Config, index: &cache::Index) {
+        self.results = self.catalogue.search(&self.query, config, index);
     }
 
     fn persist_query(&self) -> Action {
@@ -550,15 +560,21 @@ impl Loaded {
             reversed: self.query.reversed,
             installed: self.query.installed,
             favourites: self.query.favourites,
+            dependencies: self.query.dependencies,
         }
     }
 
-    fn replace(&mut self, catalogue: eso_addons_manager_core::Catalogue, config: &Config) {
+    fn replace(
+        &mut self,
+        catalogue: eso_addons_manager_core::Catalogue,
+        config: &Config,
+        index: &cache::Index,
+    ) {
         let selected = self.selected_addon().map(|addon| addon.uid.clone());
 
         self.catalogue = catalogue;
         self.selected = selected.and_then(|uid| self.catalogue.position(&uid));
-        self.refresh(config);
+        self.refresh(config, index);
     }
 
     fn selected_addon(&self) -> Option<&Addon> {
@@ -594,6 +610,11 @@ impl Loaded {
                 fl!("filter-installed"),
                 self.query.installed,
                 Message::InstalledFilterChanged
+            ),
+            filter_button(
+                fl!("filter-dependencies"),
+                self.query.dependencies,
+                Message::DependenciesFilterChanged
             ),
             filter_button(
                 fl!("filter-favourites"),

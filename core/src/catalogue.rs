@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::api::{CategoryEntry, FileDetails, FileListEntry, v4};
+use crate::cache;
 use crate::config::Config;
 
 const DISCONTINUED_CATEGORY: &str = "157";
@@ -277,6 +278,7 @@ pub struct Query {
     pub reversed: bool,
     pub installed: Filter,
     pub favourites: Filter,
+    pub dependencies: Filter,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -352,7 +354,7 @@ impl Catalogue {
         self.categories.iter().find(|category| category.id == id)
     }
 
-    pub fn search(&self, query: &Query, config: &Config) -> Vec<usize> {
+    pub fn search(&self, query: &Query, config: &Config, index: &cache::Index) -> Vec<usize> {
         let text = query.text.trim().to_lowercase();
 
         let mut matches: Vec<usize> = self
@@ -372,6 +374,10 @@ impl Catalogue {
                 let filters = [
                     (query.installed, config.addons.contains_key(&addon.uid)),
                     (query.favourites, config.favourites.contains_key(&addon.uid)),
+                    (
+                        query.dependencies,
+                        !config.addons.contains_key(&addon.uid) && index.contains_key(&addon.uid),
+                    ),
                 ];
                 let mut included = filters
                     .iter()
@@ -487,7 +493,7 @@ mod tests {
 
     fn uids_with(catalogue: &Catalogue, query: &Query, config: &Config) -> Vec<String> {
         catalogue
-            .search(query, config)
+            .search(query, config, &cache::Index::default())
             .into_iter()
             .map(|index| catalogue.addon(index).unwrap().uid.clone())
             .collect()

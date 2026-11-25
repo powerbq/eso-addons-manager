@@ -43,6 +43,7 @@ addon-count =
     }
 filter = Filter
 filter-installed = Installiert
+filter-dependencies = Abhängigkeiten
 filter-favourites = Favoriten
 sort-by = Sortieren nach
 sort-name = Name

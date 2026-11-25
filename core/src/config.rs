@@ -33,6 +33,7 @@ const SORT: &str = "Sort";
 const SORT_REVERSED: &str = "SortReversed";
 const FILTER_INSTALLED: &str = "FilterInstalled";
 const FILTER_FAVOURITES: &str = "FilterFavourites";
+const FILTER_DEPENDENCIES: &str = "FilterDependencies";
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
@@ -69,6 +70,7 @@ pub struct Config {
     pub sort_reversed: bool,
     pub filter_installed: Filter,
     pub filter_favourites: Filter,
+    pub filter_dependencies: Filter,
     pub addons: BTreeMap<String, String>,
     pub favourites: BTreeMap<String, String>,
     pub selected_libraries: BTreeMap<String, String>,
@@ -94,6 +96,7 @@ impl Default for Config {
             sort_reversed: false,
             filter_installed: Filter::default(),
             filter_favourites: Filter::default(),
+            filter_dependencies: Filter::default(),
             addons: BTreeMap::new(),
             favourites: BTreeMap::new(),
             selected_libraries: BTreeMap::new(),
@@ -187,6 +190,10 @@ impl Config {
                                 config.filter_favourites =
                                     Filter::from_key(&value).unwrap_or_default()
                             }
+                            FILTER_DEPENDENCIES => {
+                                config.filter_dependencies =
+                                    Filter::from_key(&value).unwrap_or_default()
+                            }
                             _ => {}
                         }
                     }
@@ -268,6 +275,11 @@ impl Config {
             CATALOGUE,
             FILTER_FAVOURITES,
             self.filter_favourites.as_key(),
+        );
+        set(
+            CATALOGUE,
+            FILTER_DEPENDENCIES,
+            self.filter_dependencies.as_key(),
         );
 
         set(
@@ -546,6 +558,7 @@ mod tests {
             sort_reversed: true,
             filter_installed: Filter::Only,
             filter_favourites: Filter::Except,
+            filter_dependencies: Filter::Only,
             ..Config::default()
         };
 
@@ -556,6 +569,7 @@ mod tests {
         assert!(text.contains("SortReversed = true"));
         assert!(text.contains("FilterInstalled = Only"));
         assert!(text.contains("FilterFavourites = Except"));
+        assert!(text.contains("FilterDependencies = Only"));
         assert_eq!(Config::load_encoded(&path, UTF_8).unwrap(), config);
     }
 

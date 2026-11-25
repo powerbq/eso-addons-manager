@@ -558,7 +558,7 @@ impl Manager {
                     return Task::none();
                 };
 
-                match catalogue.update(message, &self.config) {
+                match catalogue.update(message, &self.config, &self.index) {
                     catalogue::Action::None => Task::none(),
                     catalogue::Action::Run(task) => task.map(Message::Catalogue),
                     catalogue::Action::Loaded(task) => {
@@ -581,7 +581,7 @@ impl Manager {
                             format!("remove requested: {name} ({uid})")
                         };
                         save(&self.config, &self.paths.config_file, &reason);
-                        catalogue.refresh(&self.config);
+                        catalogue.refresh(&self.config, &self.index);
                         self.start_sync(Some(Toggle { uid, previous }), true)
                     }
                     catalogue::Action::ToggleFavourite { uid, name } => {
@@ -593,7 +593,7 @@ impl Manager {
                             format!("favourite removed: {name} ({uid})")
                         };
                         save(&self.config, &self.paths.config_file, &reason);
-                        catalogue.refresh(&self.config);
+                        catalogue.refresh(&self.config, &self.index);
                         Task::none()
                     }
                     catalogue::Action::OpenUrl(url) => {
@@ -605,11 +605,13 @@ impl Manager {
                         reversed,
                         installed,
                         favourites,
+                        dependencies,
                     } => {
                         self.config.sort = sort;
                         self.config.sort_reversed = reversed;
                         self.config.filter_installed = installed;
                         self.config.filter_favourites = favourites;
+                        self.config.filter_dependencies = dependencies;
                         save(
                             &self.config,
                             &self.paths.config_file,
@@ -1256,7 +1258,7 @@ impl Manager {
                 tracing::info!("catalogue refreshed: {} addons", catalogue.len());
                 if let Screen::Catalogue(screen) = &mut self.screen {
                     return screen
-                        .replace(catalogue, &self.config)
+                        .replace(catalogue, &self.config, &self.index)
                         .map(Message::Catalogue);
                 }
                 Task::none()
@@ -1347,7 +1349,7 @@ impl Manager {
             "toggle undone after cancelled provider choice",
         );
         if let Screen::Catalogue(screen) = &mut self.screen {
-            screen.refresh(&self.config);
+            screen.refresh(&self.config, &self.index);
         }
         self.exclusions.refresh(
             &installed_uids(&self.config, &self.index),
@@ -1395,7 +1397,7 @@ impl Manager {
         if let Err(error) = self.index.save(&addons) {
             tracing::warn!("cannot save the cache index: {error}");
         }
-        screen.refresh(&self.config);
+        screen.refresh(&self.config, &self.index);
         self.exclusions.refresh(
             &installed_uids(&self.config, &self.index),
             self.config.update_prices,
@@ -1464,7 +1466,7 @@ impl Manager {
                 .addons
                 .extend(found.into_iter().map(|(uid, name, _)| (uid, name)));
             save(&self.config, &self.paths.config_file, &reason);
-            catalogue.refresh(&self.config);
+            catalogue.refresh(&self.config, &self.index);
             self.exclusions.refresh(
                 &installed_uids(&self.config, &self.index),
                 self.config.update_prices,
