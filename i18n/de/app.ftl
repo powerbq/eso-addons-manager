@@ -116,7 +116,11 @@ sync-downloaded-again = { $version } (erneut heruntergeladen)
 sync-not-applied = Der AddOns-Ordner wurde nicht geändert, weil einige Downloads fehlgeschlagen sind.
 sync-download-failed = Download fehlgeschlagen: { $name }: { $error }
 sync-missing-dependency = Fehlende Abhängigkeit: { $directory }
-sync-unknown-addon = Nicht im Katalog: { $name } ({ $uid })
+sync-unknown-addon = Nicht im Katalog: { $name } (UID: { $uid })
+remove-missing-title = Einige Addons sind nicht mehr im Katalog
+remove-missing-question = Diese Addons wurden aus dem Katalog installiert, sind dort aber nicht mehr vorhanden (möglicherweise nur vorübergehend). Wenn Sie die Synchronisierung fortsetzen, werden ihre Dateien gelöscht und sie aus den installierten Addons und den Favoriten entfernt.
+remove-missing-section = Nicht mehr im Katalog
+remove-missing-uid = UID: { $uid }
 sync-up-to-date = Alles ist aktuell.
 
 log-empty = Protokoll ist leer…

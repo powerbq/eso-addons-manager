@@ -117,7 +117,11 @@ sync-downloaded-again = { $version } (скачано заново)
 sync-not-applied = Папка AddOns не изменена, потому что не все загрузки удались.
 sync-download-failed = Не удалось скачать { $name }: { $error }
 sync-missing-dependency = Не найдена зависимость: { $directory }
-sync-unknown-addon = Нет в каталоге: { $name } ({ $uid })
+sync-unknown-addon = Нет в каталоге: { $name } (UID: { $uid })
+remove-missing-title = Некоторые аддоны больше не в каталоге
+remove-missing-question = Эти аддоны были установлены из каталога, но теперь в нём отсутствуют (возможно, временно). Если продолжить синхронизацию, их файлы будут удалены, а сами аддоны — убраны из установленных и избранного.
+remove-missing-section = Нет в каталоге
+remove-missing-uid = UID: { $uid }
 sync-up-to-date = Всё актуально.
 
 log-empty = Журнал пуст…

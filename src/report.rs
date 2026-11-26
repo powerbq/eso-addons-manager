@@ -43,10 +43,15 @@ impl Report {
     }
 
     pub fn expanded(&self) -> Vec<bool> {
-        self.sections
+        let mut flags: Vec<bool> = self
+            .sections
             .iter()
             .map(|section| section.lines.len() <= EXPANDED_LINES)
-            .collect()
+            .collect();
+        if !self.problems.is_empty() {
+            flags.push(true);
+        }
+        flags
     }
 }
 
@@ -54,6 +59,7 @@ pub fn view<'a, Message: Clone + 'a>(
     report: &'a Report,
     expanded: &'a [bool],
     on_toggle: impl Fn(usize) -> Message,
+    inline: bool,
 ) -> Column<'a, Message> {
     let bold = Font {
         weight: font::Weight::Semibold,
@@ -86,13 +92,22 @@ pub fn view<'a, Message: Clone + 'a>(
         let mut section_column = column![header].spacing(SPACING_XS);
         if open {
             for line in &section.lines {
+                // inline keeps the detail next to the name (grey); otherwise the name fills and the
+                // detail is pushed to the right as its own column (the sync report's version column).
+                let name = text(&line.name);
+                let name = if inline { name } else { name.width(Fill) };
+                // inline: grey detail at the name's own size, so the two line up cleanly next to each
+                // other; otherwise the smaller `secondary` caption in its own right-hand column.
+                let detail = if inline {
+                    text(line.detail.as_str()).style(text::secondary)
+                } else {
+                    secondary(line.detail.as_str())
+                };
                 section_column = section_column.push(
-                    row![
-                        text(&line.name).width(Fill),
-                        secondary(line.detail.as_str()),
-                    ]
-                    .spacing(SPACING_M_NUDGE)
-                    .padding([0.0, LINE_INDENT]),
+                    row![name, detail]
+                        .spacing(SPACING_M_NUDGE)
+                        .padding([0.0, LINE_INDENT])
+                        .align_y(Center),
                 );
             }
         }
@@ -104,9 +119,38 @@ pub fn view<'a, Message: Clone + 'a>(
     }
 
     if !report.problems.is_empty() {
-        let mut problems = column![text(fl!("report-problems")).font(bold)].spacing(SPACING_XS);
-        for problem in &report.problems {
-            problems = problems.push(text(problem).style(text::danger));
+        // The problems block is a collapsible section like the others (its toggle slot sits after the
+        // real sections in `expanded`), but it opens expanded by default (see `expanded`).
+        let index = report.sections.len();
+        let open = expanded.get(index).copied().unwrap_or(true);
+        let header = button(
+            row![
+                if open {
+                    icon::expanded()
+                } else {
+                    icon::collapsed()
+                },
+                text(format!(
+                    "{} ({})",
+                    fl!("report-problems"),
+                    report.problems.len()
+                ))
+                .font(bold),
+            ]
+            .spacing(HEADER_SPACING)
+            .align_y(Center),
+        )
+        .style(button::text)
+        .padding(0)
+        .on_press(on_toggle(index));
+
+        let mut problems = column![header].spacing(SPACING_XS);
+        if open {
+            for problem in &report.problems {
+                problems = problems.push(
+                    row![text(problem).style(text::danger).width(Fill)].padding([0.0, LINE_INDENT]),
+                );
+            }
         }
         body = body.push(problems);
     }

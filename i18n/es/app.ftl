@@ -116,7 +116,11 @@ sync-downloaded-again = { $version } (descargado de nuevo)
 sync-not-applied = La carpeta AddOns no se modificó porque fallaron algunas descargas.
 sync-download-failed = Error al descargar { $name }: { $error }
 sync-missing-dependency = Falta la dependencia: { $directory }
-sync-unknown-addon = No está en el catálogo: { $name } ({ $uid })
+sync-unknown-addon = No está en el catálogo: { $name } (UID: { $uid })
+remove-missing-title = Algunos complementos ya no están en el catálogo
+remove-missing-question = Estos complementos se instalaron desde el catálogo, pero ya no están en él (quizás solo de forma temporal). Si continúas la sincronización, se eliminarán sus archivos y se quitarán de tus complementos instalados y favoritos.
+remove-missing-section = Ya no está en el catálogo
+remove-missing-uid = UID: { $uid }
 sync-up-to-date = Todo está actualizado.
 
 log-empty = El registro está vacío…

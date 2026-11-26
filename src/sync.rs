@@ -14,7 +14,13 @@ use crate::report::{Line, Report};
 pub enum Update {
     Refreshed(Catalogue),
     Progress(Event),
-    Finished(Result<Box<Plan>, String>),
+    Finished(Result<Box<Outcome>, String>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Outcome {
+    pub plan: Plan,
+    pub applied: bool,
 }
 
 pub fn start(
@@ -67,6 +73,41 @@ pub fn start(
         .and_then(|result| result);
 
         let _ = sender.unbounded_send(Update::Finished(result.map(Box::new)));
+    };
+
+    Task::batch([Task::stream(receiver), Task::future(job).discard()])
+}
+
+/// Apply a plan held back for confirmation (no catalogue refresh, no re-planning, no network): the user
+/// accepted the removal of add-ons that left the catalogue, so apply the already-computed plan as is.
+pub fn apply_plan(plan: Plan, config: Config, paths: Paths) -> Task<Update> {
+    let (sender, receiver) = mpsc::unbounded();
+
+    let job = async move {
+        let progress = sender.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let target = PathBuf::from(&config.target_directory);
+            let addons = paths.cache_dir.join(cache::DIRECTORY);
+            sync::apply(&plan, &target, |event| {
+                let _ = progress.unbounded_send(Update::Progress(event));
+            })
+            .map_err(|error| error.to_string())?;
+
+            if let Err(error) = sync::clean_cache(&plan, &addons) {
+                tracing::warn!("cannot clean the download cache: {error}");
+            }
+            Ok::<_, String>(plan)
+        })
+        .await
+        .map_err(|error| error.to_string())
+        .and_then(|result| result);
+
+        let _ = sender.unbounded_send(Update::Finished(result.map(|plan| {
+            Box::new(Outcome {
+                plan,
+                applied: true,
+            })
+        })));
     };
 
     Task::batch([Task::stream(receiver), Task::future(job).discard()])
@@ -282,7 +323,11 @@ pub fn log(plan: &Plan, summary: &Summary) {
         tracing::warn!("missing dependency: {directory}");
     }
     for (name, uid) in &summary.unknown {
-        tracing::warn!("not in the catalogue: {name} ({uid})");
+        if summary.applied {
+            tracing::warn!("removed {name} (UID: {uid}): no longer in the catalogue");
+        } else {
+            tracing::warn!("not in the catalogue: {name} (UID: {uid})");
+        }
     }
 
     let mut created = 0;
@@ -337,7 +382,7 @@ fn run(
     index: &cache::Index,
     paths: &Paths,
     mut on_event: impl FnMut(Event),
-) -> Result<Plan, String> {
+) -> Result<Outcome, String> {
     let target = PathBuf::from(&config.target_directory);
     let addons = paths.cache_dir.join(cache::DIRECTORY);
     let ttc_cache = paths.cache_dir.join(ttc::DIRECTORY);
@@ -373,7 +418,10 @@ fn run(
     )
     .map_err(|error| error.to_string())?;
 
-    if plan.is_applicable() {
+    // Installed add-ons that have left the catalogue (`plan.unknown`) would be deleted as extraneous;
+    // hold the applicable plan unapplied so the UI can confirm the removal first (apply via `apply_plan`).
+    let applied = plan.is_applicable() && plan.unknown.is_empty();
+    if applied {
         sync::apply(&plan, &target, &mut on_event).map_err(|error| error.to_string())?;
 
         if let Err(error) = sync::clean_cache(&plan, &addons) {
@@ -381,5 +429,5 @@ fn run(
         }
     }
 
-    Ok(plan)
+    Ok(Outcome { plan, applied })
 }

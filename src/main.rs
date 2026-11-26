@@ -251,6 +251,13 @@ enum Dialog {
         choices: Vec<choice::Choice>,
         then: AfterChoice,
     },
+    ConfirmRemoval {
+        report: Report,
+        expanded: Vec<bool>,
+        plan: Box<core_sync::Plan>,
+        toggle: Option<Toggle>,
+        on_launch: bool,
+    },
     ClearLogs {
         choice: ClearChoice,
         writing: bool,
@@ -337,6 +344,7 @@ enum Message {
     OpenConfirmed,
     OpenCancelled,
     ProvidersConfirmed,
+    RemovalConfirmed,
     MigrateChoice(bool),
     MigrateOpenFolders,
     Logged(Vec<String>),
@@ -1055,7 +1063,9 @@ impl Manager {
                 Task::none()
             }
             Message::SectionToggled(index) => {
-                if let Some(Dialog::Details { expanded, .. }) = &mut self.dialog
+                if let Some(
+                    Dialog::Details { expanded, .. } | Dialog::ConfirmRemoval { expanded, .. },
+                ) = &mut self.dialog
                     && let Some(expanded) = expanded.get_mut(index)
                 {
                     *expanded = !*expanded;
@@ -1142,6 +1152,24 @@ impl Manager {
                         Task::none()
                     }
                 }
+            }
+            Message::RemovalConfirmed => {
+                let Some(Dialog::ConfirmRemoval {
+                    plan,
+                    toggle,
+                    on_launch,
+                    ..
+                }) = self.dialog.take()
+                else {
+                    return Task::none();
+                };
+                tracing::info!(
+                    "removal of {} add-on(s) not in the catalogue confirmed",
+                    plan.unknown.len()
+                );
+                self.activity = Some(Activity::Sync { toggle, on_launch });
+                self.sync_since = Some(Instant::now());
+                sync::apply_plan(*plan, self.config.clone(), self.paths.clone()).map(Message::Sync)
             }
             Message::MigrateChoice(keep_old) => {
                 if let Some(Dialog::Migrate(conflict)) = self.dialog.take() {
@@ -1240,13 +1268,19 @@ impl Manager {
                     _ => (None, false),
                 };
                 match result {
-                    Ok(plan) => {
-                        let report = self.finish_sync(&plan);
-                        self.dialog = Some(if plan.failed.is_empty() && !plan.choices.is_empty() {
-                            self.choose_providers(&plan.choices, AfterChoice::Sync { toggle })
+                    Ok(outcome) => {
+                        let sync::Outcome { plan, applied } = *outcome;
+                        if plan.failed.is_empty() && !plan.choices.is_empty() {
+                            let _ = self.finish_sync(&plan);
+                            self.dialog = Some(
+                                self.choose_providers(&plan.choices, AfterChoice::Sync { toggle }),
+                            );
+                        } else if !applied && !plan.unknown.is_empty() {
+                            self.dialog = Some(self.confirm_removal(plan, toggle, on_launch));
                         } else {
-                            details(fl!("sync-complete"), report)
-                        });
+                            let report = self.finish_sync(&plan);
+                            self.dialog = Some(details(fl!("sync-complete"), report));
+                        }
                     }
                     Err(error) => {
                         tracing::error!("sync failed: {error}");
@@ -1298,14 +1332,21 @@ impl Manager {
     }
 
     fn close_dialog(&mut self) {
-        if let Some(Dialog::Choose {
-            then: AfterChoice::Sync {
-                toggle: Some(toggle),
-            },
-            ..
-        }) = self.dialog.take()
-        {
-            self.undo(toggle);
+        match self.dialog.take() {
+            Some(Dialog::Choose {
+                then:
+                    AfterChoice::Sync {
+                        toggle: Some(toggle),
+                    },
+                ..
+            }) => self.undo(toggle),
+            Some(Dialog::ConfirmRemoval { plan, .. }) => {
+                tracing::info!(
+                    "sync cancelled: kept {} add-on(s) no longer in the catalogue",
+                    plan.unknown.len()
+                );
+            }
+            _ => {}
         }
     }
 
@@ -1330,6 +1371,49 @@ impl Manager {
             &installed_uids(&self.config, &self.index),
             self.config.update_prices,
         );
+    }
+
+    fn confirm_removal(
+        &self,
+        plan: core_sync::Plan,
+        toggle: Option<Toggle>,
+        on_launch: bool,
+    ) -> Dialog {
+        let name_of = |uid: &str| {
+            self.config
+                .addons
+                .get(uid)
+                .filter(|name| !name.is_empty())
+                .cloned()
+                .unwrap_or_else(|| uid.to_owned())
+        };
+        // Log the list now, before the sync — so a user who cancels can still send a log that names
+        // what would have been removed.
+        tracing::info!(
+            "{} installed add-on(s) are no longer in the catalogue; awaiting confirmation:",
+            plan.unknown.len()
+        );
+        for uid in &plan.unknown {
+            tracing::warn!("not in the catalogue: {} (UID: {uid})", name_of(uid));
+        }
+        let lines: Vec<Line> = plan
+            .unknown
+            .iter()
+            .map(|uid| Line {
+                name: name_of(uid),
+                detail: fl!("remove-missing-uid", uid = uid.clone()),
+            })
+            .collect();
+        let mut report = Report::default();
+        report.push_section(fl!("remove-missing-section"), lines);
+        let expanded = report.expanded();
+        Dialog::ConfirmRemoval {
+            report,
+            expanded,
+            plan: Box::new(plan),
+            toggle,
+            on_launch,
+        }
     }
 
     fn finish_sync(&mut self, plan: &core_sync::Plan) -> Report {
@@ -1978,8 +2062,13 @@ fn dialog_view(dialog: &Dialog, page_height: f32) -> Element<'_, Message> {
         } => dialog_frame(
             title.as_str(),
             container(
-                scrollable(report::view(report, expanded, Message::SectionToggled))
-                    .spacing(DIALOG_SPACING),
+                scrollable(report::view(
+                    report,
+                    expanded,
+                    Message::SectionToggled,
+                    false,
+                ))
+                .spacing(DIALOG_SPACING),
             )
             .max_height(page_height * REPORT_HEIGHT_RATIO),
             vec![dialog_button(fl!("ok"), Message::DialogClosed)],
@@ -2005,6 +2094,29 @@ fn dialog_view(dialog: &Dialog, page_height: f32) -> Element<'_, Message> {
                     fl!("continue"),
                     choice::is_complete(choices).then_some(Message::ProvidersConfirmed),
                 ),
+            ],
+        ),
+        Dialog::ConfirmRemoval {
+            report, expanded, ..
+        } => dialog_frame(
+            fl!("remove-missing-title"),
+            column![
+                text(fl!("remove-missing-question")),
+                container(
+                    scrollable(report::view(
+                        report,
+                        expanded,
+                        Message::SectionToggled,
+                        true
+                    ))
+                    .spacing(DIALOG_SPACING),
+                )
+                .max_height(page_height * REPORT_HEIGHT_RATIO),
+            ]
+            .spacing(DIALOG_SPACING),
+            vec![
+                dialog_button(fl!("cancel"), Message::DialogClosed),
+                dialog_button(fl!("continue"), Message::RemovalConfirmed),
             ],
         ),
         Dialog::ClearLogs { choice, writing } => dialog_frame(
