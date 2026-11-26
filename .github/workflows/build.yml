@@ -19,6 +19,8 @@ jobs:
       - name: Test
         run: cargo test --locked --workspace
       - name: Build
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./build.sh "${{ github.ref_name }}"
       - uses: actions/upload-artifact@v4
         with:
@@ -36,6 +38,8 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File patches\cargo-patched.ps1 test --workspace
       - name: Build
         shell: cmd
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: build.cmd ${{ github.ref_name }}
       - uses: actions/upload-artifact@v4
         with:
@@ -51,6 +55,8 @@ jobs:
       - name: Test
         run: cargo test --locked --workspace
       - name: Build
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: ./build.sh "${{ github.ref_name }}"
       - uses: actions/upload-artifact@v4
         with:
