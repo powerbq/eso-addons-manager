@@ -14,6 +14,7 @@ mod paths;
 mod report;
 mod rotate;
 mod screen;
+mod support;
 mod sync;
 mod update;
 mod widget;
@@ -33,7 +34,7 @@ use iced::theme::Palette;
 use iced::theme::palette::{self, Extended, Pair, Secondary};
 use iced::widget::{
     button, center, checkbox, column, container, mouse_area, opaque, radio, row, rule, scrollable,
-    sensor, space, stack, text, tooltip,
+    sensor, space, stack, text, text_editor, text_input, tooltip,
 };
 use iced::{
     Center, Element, Fill, Font, Padding, Right, Settings, Size, Subscription, Task, Theme, color,
@@ -186,6 +187,7 @@ struct Manager {
     screen: Screen,
     dialog: Option<Dialog>,
     confirm_open: Option<String>,
+    report_fallback: Option<(Vec<u8>, bool)>,
     activity: Option<Activity>,
     started: Instant,
     frame: Instant,
@@ -257,6 +259,16 @@ enum Dialog {
         plan: Box<core_sync::Plan>,
         toggle: Option<Toggle>,
         on_launch: bool,
+    },
+    ReportProblem {
+        selection: support::Selection,
+        description: text_editor::Content,
+        contact: String,
+        sending: bool,
+    },
+    ReportSaved {
+        path: PathBuf,
+        after_failed_send: bool,
     },
     ClearLogs {
         choice: ClearChoice,
@@ -345,6 +357,19 @@ enum Message {
     OpenCancelled,
     ProvidersConfirmed,
     RemovalConfirmed,
+    ReportProblemRequested,
+    ReportConfigToggled(bool),
+    ReportConfigBackupsToggled(bool),
+    ReportLogsToggled(bool),
+    ReportLogsBackupsToggled(bool),
+    ReportContactChanged(String),
+    ReportDescriptionAction(text_editor::Action),
+    ReportSend,
+    ReportSave,
+    ReportBundled(Vec<u8>),
+    ReportSent(support::Outcome),
+    ReportSaveChosen(Option<PathBuf>),
+    OpenReportFolder,
     MigrateChoice(bool),
     MigrateOpenFolders,
     Logged(Vec<String>),
@@ -381,6 +406,7 @@ impl Manager {
                     screen: Screen::Unavailable(error.to_string()),
                     dialog: None,
                     confirm_open: None,
+                    report_fallback: None,
                     activity: None,
                     started: Instant::now(),
                     frame: Instant::now(),
@@ -493,6 +519,7 @@ impl Manager {
             screen,
             dialog: None,
             confirm_open: None,
+            report_fallback: None,
             activity: None,
             started: Instant::now(),
             frame: Instant::now(),
@@ -1171,6 +1198,168 @@ impl Manager {
                 self.sync_since = Some(Instant::now());
                 sync::apply_plan(*plan, self.config.clone(), self.paths.clone()).map(Message::Sync)
             }
+            Message::ReportProblemRequested => {
+                self.menu = None;
+                self.dialog = Some(Dialog::ReportProblem {
+                    selection: support::Selection {
+                        config: true,
+                        config_backups: false,
+                        log: true,
+                        log_backups: false,
+                    },
+                    description: text_editor::Content::new(),
+                    contact: String::new(),
+                    sending: false,
+                });
+                Task::none()
+            }
+            Message::ReportConfigToggled(value) => {
+                if let Some(Dialog::ReportProblem { selection, .. }) = &mut self.dialog {
+                    selection.config = value;
+                }
+                Task::none()
+            }
+            Message::ReportConfigBackupsToggled(value) => {
+                if let Some(Dialog::ReportProblem { selection, .. }) = &mut self.dialog {
+                    selection.config_backups = value;
+                }
+                Task::none()
+            }
+            Message::ReportLogsToggled(value) => {
+                if let Some(Dialog::ReportProblem { selection, .. }) = &mut self.dialog {
+                    selection.log = value;
+                }
+                Task::none()
+            }
+            Message::ReportLogsBackupsToggled(value) => {
+                if let Some(Dialog::ReportProblem { selection, .. }) = &mut self.dialog {
+                    selection.log_backups = value;
+                }
+                Task::none()
+            }
+            Message::ReportContactChanged(value) => {
+                if let Some(Dialog::ReportProblem { contact, .. }) = &mut self.dialog {
+                    *contact = value;
+                }
+                Task::none()
+            }
+            Message::ReportDescriptionAction(action) => {
+                if let Some(Dialog::ReportProblem { description, .. }) = &mut self.dialog {
+                    description.perform(action);
+                }
+                Task::none()
+            }
+            Message::ReportSend => {
+                let Some(Dialog::ReportProblem {
+                    selection,
+                    description,
+                    contact,
+                    sending,
+                }) = &mut self.dialog
+                else {
+                    return Task::none();
+                };
+                if *sending {
+                    return Task::none();
+                }
+                *sending = true;
+                let selection = *selection;
+                let description = description.text();
+                let contact = contact.clone();
+                let log = self.log.text();
+                let paths = self.paths.clone();
+                tracing::info!("sending a problem report");
+                Task::perform(
+                    support::send(paths, selection, description, contact, log),
+                    Message::ReportSent,
+                )
+            }
+            Message::ReportSave => {
+                let Some(Dialog::ReportProblem {
+                    selection,
+                    description,
+                    contact,
+                    sending,
+                }) = &mut self.dialog
+                else {
+                    return Task::none();
+                };
+                if *sending {
+                    return Task::none();
+                }
+                *sending = true;
+                let selection = *selection;
+                let description = description.text();
+                let contact = contact.clone();
+                let log = self.log.text();
+                let paths = self.paths.clone();
+                tracing::info!("saving a problem report");
+                Task::perform(
+                    support::bundle(paths, selection, description, contact, log),
+                    Message::ReportBundled,
+                )
+            }
+            Message::ReportBundled(bundle) => {
+                self.report_fallback = Some((bundle, false));
+                self.dialog = None;
+                save_report_dialog()
+            }
+            Message::ReportSent(outcome) => match outcome {
+                support::Outcome::Sent => {
+                    self.dialog = Some(Dialog::Report {
+                        title: fl!("report-sent-title"),
+                        message: fl!("report-sent-message"),
+                    });
+                    Task::none()
+                }
+                support::Outcome::Failed { error, bundle } => {
+                    tracing::warn!("problem report failed: {error}");
+                    if bundle.is_empty() {
+                        self.dialog = Some(Dialog::Report {
+                            title: fl!("report-failed-title"),
+                            message: fl!("report-failed", error = error),
+                        });
+                        Task::none()
+                    } else {
+                        self.report_fallback = Some((bundle, true));
+                        self.dialog = None;
+                        save_report_dialog()
+                    }
+                }
+            },
+            Message::ReportSaveChosen(path) => {
+                // Cancelling the save dialog is a deliberate "never mind" — dismiss silently (the dialog
+                // was already cleared when the picker opened). Only a real write error is surfaced.
+                if let (Some(path), Some((bundle, after_failed_send))) =
+                    (path, self.report_fallback.take())
+                {
+                    self.dialog = Some(match std::fs::write(&path, bundle) {
+                        Ok(()) => {
+                            tracing::info!("problem report saved to {}", path.display());
+                            Dialog::ReportSaved {
+                                path,
+                                after_failed_send,
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!("could not save the problem report: {error}");
+                            Dialog::Report {
+                                title: fl!("report-save-failed-title"),
+                                message: fl!("report-save-failed", error = error.to_string()),
+                            }
+                        }
+                    });
+                }
+                Task::none()
+            }
+            Message::OpenReportFolder => {
+                if let Some(Dialog::ReportSaved { path, .. }) = &self.dialog
+                    && let Some(folder) = path.parent()
+                {
+                    widget::open_folder(folder);
+                }
+                Task::none()
+            }
             Message::MigrateChoice(keep_old) => {
                 if let Some(Dialog::Migrate(conflict)) = self.dialog.take() {
                     migrate::resolve(&conflict, keep_old, &self.paths);
@@ -1698,29 +1887,6 @@ impl Manager {
         let columns = match menu {
             Menu::Settings => {
                 let mut first = Vec::new();
-                // The whole update section is present only on a direct launch; under `--no-update-check`
-                // (updater-launched) it is gone, not greyed.
-                if self.update_ui {
-                    first.extend([
-                        menu::Entry::Header(fl!("menu-updates")),
-                        menu::Entry::Item(menu::Item {
-                            label: fl!("menu-check-on-launch"),
-                            on_press: Some(Message::CheckOnLaunchToggled),
-                            checked: self.config.check_for_updates,
-                        }),
-                        menu::Entry::Item(menu::Item {
-                            label: fl!("menu-notify-prereleases"),
-                            on_press: Some(Message::NotifyPrereleasesToggled),
-                            checked: self.config.notify_prereleases,
-                        }),
-                        menu::Entry::Item(menu::Item {
-                            label: fl!("menu-check-now"),
-                            on_press: Some(Message::CheckUpdatesNow),
-                            checked: false,
-                        }),
-                        menu::Entry::Separator,
-                    ]);
-                }
                 first.extend([
                     menu::Entry::Header(fl!("menu-ttc-prices")),
                     menu::Entry::Item(menu::Item {
@@ -1808,16 +1974,51 @@ impl Manager {
                             .then_some(Message::ClearLogsRequested),
                         checked: false,
                     }),
+                ];
+
+                let mut third = Vec::new();
+                // The whole update section is present only on a direct launch; under `--no-update-check`
+                // (updater-launched) it is gone, not greyed.
+                if self.update_ui {
+                    third.extend([
+                        menu::Entry::Header(fl!("menu-updates")),
+                        menu::Entry::Item(menu::Item {
+                            label: fl!("menu-check-on-launch"),
+                            on_press: Some(Message::CheckOnLaunchToggled),
+                            checked: self.config.check_for_updates,
+                        }),
+                        menu::Entry::Item(menu::Item {
+                            label: fl!("menu-notify-prereleases"),
+                            on_press: Some(Message::NotifyPrereleasesToggled),
+                            checked: self.config.notify_prereleases,
+                        }),
+                        menu::Entry::Item(menu::Item {
+                            label: fl!("menu-check-now"),
+                            on_press: Some(Message::CheckUpdatesNow),
+                            checked: false,
+                        }),
+                        menu::Entry::Separator,
+                    ]);
+                }
+                third.extend([
+                    menu::Entry::Header(fl!("menu-support")),
+                    menu::Entry::Item(menu::Item {
+                        label: fl!("menu-report-problem"),
+                        on_press: Some(Message::ReportProblemRequested),
+                        checked: false,
+                    }),
                     menu::Entry::Separator,
+                ]);
+                third.extend([
                     menu::Entry::Header(fl!("menu-experimental")),
                     menu::Entry::Item(menu::Item {
                         label: fl!("menu-discontinued"),
                         on_press: idle.then_some(Message::DiscontinuedToggled),
                         checked: self.config.include_outdated,
                     }),
-                ];
+                ]);
 
-                vec![first, second]
+                vec![first, second, third]
             }
         };
         let widths: Vec<Option<f32>> = (0..columns.len())
@@ -2119,6 +2320,73 @@ fn dialog_view(dialog: &Dialog, page_height: f32) -> Element<'_, Message> {
                 dialog_button(fl!("continue"), Message::RemovalConfirmed),
             ],
         ),
+        Dialog::ReportProblem {
+            selection,
+            description,
+            contact,
+            sending,
+        } => {
+            let can_send = !*sending
+                && (selection.config
+                    || selection.config_backups
+                    || selection.log
+                    || selection.log_backups
+                    || !description.text().trim().is_empty());
+            let (action_label, action) = if support::is_enabled() {
+                (fl!("report-send"), Message::ReportSend)
+            } else {
+                (fl!("report-save"), Message::ReportSave)
+            };
+            dialog_frame(
+                fl!("report-title"),
+                column![
+                    text(fl!("report-intro")),
+                    checkbox(selection.config)
+                        .label(fl!("report-include-config"))
+                        .on_toggle(Message::ReportConfigToggled),
+                    checkbox(selection.config_backups)
+                        .label(fl!("report-include-config-backups"))
+                        .on_toggle(Message::ReportConfigBackupsToggled),
+                    checkbox(selection.log)
+                        .label(fl!("report-include-logs"))
+                        .on_toggle(Message::ReportLogsToggled),
+                    checkbox(selection.log_backups)
+                        .label(fl!("report-include-log-files"))
+                        .on_toggle(Message::ReportLogsBackupsToggled),
+                    secondary(fl!("report-description-label")),
+                    text_editor(description)
+                        .placeholder(fl!("report-description-placeholder"))
+                        .height(96.0)
+                        .on_action(Message::ReportDescriptionAction),
+                    secondary(fl!("report-contact-label")),
+                    text_input(&fl!("report-contact-placeholder"), contact)
+                        .on_input(Message::ReportContactChanged),
+                ]
+                .spacing(DIALOG_SPACING),
+                vec![
+                    dialog_button(fl!("cancel"), Message::DialogClosed),
+                    dialog_button(action_label, can_send.then_some(action)),
+                ],
+            )
+        }
+        Dialog::ReportSaved {
+            path,
+            after_failed_send,
+        } => dialog_frame(
+            fl!("report-saved-title"),
+            text(if *after_failed_send {
+                fl!(
+                    "report-saved-sent-failed",
+                    path = path.display().to_string()
+                )
+            } else {
+                fl!("report-saved-message", path = path.display().to_string())
+            }),
+            vec![
+                dialog_button(fl!("report-open-folder"), Message::OpenReportFolder),
+                dialog_button(fl!("ok"), Message::DialogClosed),
+            ],
+        ),
         Dialog::ClearLogs { choice, writing } => dialog_frame(
             fl!("log-clear-title"),
             column![
@@ -2238,6 +2506,20 @@ fn save(config: &Config, path: &Path, reason: &str) {
         Ok(()) => tracing::info!("config updated: {reason}"),
         Err(error) => tracing::error!("cannot save settings ({reason}): {error}"),
     }
+}
+
+fn save_report_dialog() -> Task<Message> {
+    let name = support::bundle_filename();
+    Task::perform(
+        async move {
+            rfd::AsyncFileDialog::new()
+                .set_file_name(name)
+                .save_file()
+                .await
+                .map(|handle| handle.path().to_path_buf())
+        },
+        Message::ReportSaveChosen,
+    )
 }
 
 fn installed_uids(config: &Config, index: &cache::Index) -> BTreeSet<String> {

@@ -27,9 +27,31 @@ fn embed_windows_icon() {
 #[cfg(not(windows))]
 fn embed_windows_icon() {}
 
+fn configure_sentry_dsn() {
+    println!("cargo::rerun-if-env-changed=SENTRY_DSN");
+    println!("cargo::rerun-if-changed=.env");
+
+    let dsn = env::var("SENTRY_DSN")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            fs::read_to_string(".env").ok().and_then(|text| {
+                text.lines()
+                    .filter_map(|line| line.strip_prefix("SENTRY_DSN="))
+                    .map(|value| value.trim().trim_matches('"').to_owned())
+                    .find(|value| !value.is_empty())
+            })
+        });
+
+    if let Some(dsn) = dsn {
+        println!("cargo::rustc-env=SENTRY_DSN={dsn}");
+    }
+}
+
 fn main() {
     println!("cargo::rerun-if-changed=src/icon/glyphs.rs");
 
+    configure_sentry_dsn();
     embed_windows_icon();
 
     let scope = ReadScope::new(lucide_icons::LUCIDE_FONT_BYTES);

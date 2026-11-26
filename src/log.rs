@@ -12,7 +12,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 const DEFAULT_FILTER: &str = "warn,app=info,eso_addons_manager_core=info";
 
 const LOG_NAME: &str = "app";
-const LOG_SUFFIX: &str = ".log";
+pub(crate) const LOG_SUFFIX: &str = ".log";
 const KEEP_FILES: usize = 10;
 
 pub fn setup(directory: PathBuf) -> (mpsc::UnboundedReceiver<String>, FileLog) {

@@ -118,6 +118,19 @@ impl Client {
         Ok(response.text().await?)
     }
 
+    pub async fn post(&self, url: &str, content_type: &str, body: Vec<u8>) -> Result<(), Error> {
+        tracing::debug!("POST {url} ({} bytes)", body.len());
+        self.http
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(())
+    }
+
     pub(crate) async fn get_raw(&self, version: ApiVersion, path: &str) -> Result<String, Error> {
         let url = format!("{}/{path}", Self::prefix(version));
         tracing::debug!("GET {url}");
