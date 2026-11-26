@@ -420,9 +420,13 @@ impl Manager {
             }
         }
 
-        let (screen, task) = match api::Client::new(config.api_version) {
+        let (screen, task) = match api::Client::new() {
             Ok(client) => {
-                let (catalogue, task) = catalogue::Catalogue::new(client, theme());
+                let (catalogue, task) = catalogue::Catalogue::new(
+                    client,
+                    api::sources(config.include_outdated),
+                    theme(),
+                );
                 (Screen::Catalogue(catalogue), task.map(Message::Catalogue))
             }
             Err(error) => {
@@ -726,9 +730,11 @@ impl Manager {
                                         if cache::is_valid(&path, addon, index.get(&addon.uid)) {
                                             deps::read_archive(&path).ok().map(|m| m.provides)
                                         } else {
-                                            match handle
-                                                .block_on(cache::fetch(&client, &addon.uid, &path))
-                                            {
+                                            let version =
+                                                catalogue.origin_of(&addon.uid).unwrap_or_default();
+                                            match handle.block_on(cache::fetch(
+                                                &client, version, &addon.uid, &path,
+                                            )) {
                                                 Ok(download) => {
                                                     let _ = cache::store(&path, &download);
                                                     deps::read_archive(&path)
@@ -935,22 +941,27 @@ impl Manager {
             }
             Message::DiscontinuedToggled => {
                 self.menu = None;
-                self.config.api_version = match self.config.api_version {
-                    api::ApiVersion::V3 => api::ApiVersion::V4,
-                    api::ApiVersion::V4 => api::ApiVersion::V3,
-                };
+                self.config.include_outdated = !self.config.include_outdated;
                 save(
                     &self.config,
                     &self.paths.config_file,
                     &format!(
-                        "catalogue source changed to {}",
-                        self.config.api_version.as_key()
+                        "outdated add-ons {}",
+                        if self.config.include_outdated {
+                            "enabled"
+                        } else {
+                            "disabled"
+                        }
                     ),
                 );
 
-                match api::Client::new(self.config.api_version) {
+                match api::Client::new() {
                     Ok(client) => {
-                        let (catalogue, task) = catalogue::Catalogue::new(client, theme());
+                        let (catalogue, task) = catalogue::Catalogue::new(
+                            client,
+                            api::sources(self.config.include_outdated),
+                            theme(),
+                        );
                         self.screen = Screen::Catalogue(catalogue);
                         task.map(Message::Catalogue)
                     }
@@ -1274,6 +1285,7 @@ impl Manager {
         self.sync_since = Some(Instant::now());
         sync::start(
             screen.client().clone(),
+            screen.versions().to_vec(),
             catalogue.clone(),
             self.config.clone(),
             self.index.clone(),
@@ -1712,7 +1724,7 @@ impl Manager {
                     menu::Entry::Item(menu::Item {
                         label: fl!("menu-discontinued"),
                         on_press: idle.then_some(Message::DiscontinuedToggled),
-                        checked: self.config.api_version == api::ApiVersion::V4,
+                        checked: self.config.include_outdated,
                     }),
                 ];
 
@@ -2149,7 +2161,7 @@ fn acquire_instance_lock(paths: &paths::Paths) -> Instance {
 }
 
 async fn check_updates(beta: bool) -> Result<Option<update::Available>, String> {
-    let client = api::Client::new(api::ApiVersion::default()).map_err(|error| error.to_string())?;
+    let client = api::Client::new().map_err(|error| error.to_string())?;
 
     if beta {
         // Beta mode: the GitHub API, picking the newest release by semver (pre-releases included).

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::api::{CategoryEntry, FileDetails, FileListEntry, v4};
+use crate::api::{ApiVersion, CategoryEntry, FileDetails, FileListEntry, v4};
 use crate::cache;
 use crate::config::Config;
 
@@ -306,6 +306,7 @@ pub struct Query {
 pub struct Catalogue {
     addons: Vec<Addon>,
     categories: Vec<Category>,
+    origin: HashMap<String, ApiVersion>,
 }
 
 impl Catalogue {
@@ -319,14 +320,20 @@ impl Catalogue {
         categories
             .sort_by_cached_key(|category| (category.group_key(), category.title.to_lowercase()));
 
-        Self { addons, categories }
+        Self {
+            addons,
+            categories,
+            origin: HashMap::new(),
+        }
     }
 
-    pub fn with_addons(&self, addons: impl IntoIterator<Item = Addon>) -> Self {
-        Self {
-            addons: addons.into_iter().collect(),
-            categories: self.categories.clone(),
-        }
+    pub fn with_origin(mut self, origin: HashMap<String, ApiVersion>) -> Self {
+        self.origin = origin;
+        self
+    }
+
+    pub fn origin_of(&self, uid: &str) -> Option<ApiVersion> {
+        self.origin.get(uid).copied()
     }
 
     pub fn len(&self) -> usize {
@@ -523,19 +530,6 @@ mod tests {
             .into_iter()
             .map(|index| catalogue.addon(index).unwrap().uid.clone())
             .collect()
-    }
-
-    #[test]
-    fn replaces_addons_and_keeps_categories() {
-        let refreshed = catalogue().with_addons([
-            entry("5", "Votan's Minimap", "votan", "94", [0; 4]),
-            entry("1", "LibAddonMenu", "sirinsidiator", "53", [0; 4]),
-        ]);
-
-        assert_eq!(refreshed.len(), 2);
-        assert_eq!(refreshed.position("1"), Some(1));
-        assert_eq!(refreshed.position("2"), None);
-        assert_eq!(refreshed.categories(), catalogue().categories());
     }
 
     #[test]

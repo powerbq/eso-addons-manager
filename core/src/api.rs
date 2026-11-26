@@ -35,6 +35,14 @@ impl ApiVersion {
     }
 }
 
+pub fn sources(include_outdated: bool) -> Vec<ApiVersion> {
+    let mut sources = vec![ApiVersion::V3];
+    if include_outdated {
+        sources.push(ApiVersion::V4);
+    }
+    sources
+}
+
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
     #[error("network request failed: {0}")]
@@ -60,11 +68,10 @@ impl From<reqwest::Error> for Error {
 #[derive(Debug, Clone)]
 pub struct Client {
     http: reqwest::Client,
-    version: ApiVersion,
 }
 
 impl Client {
-    pub fn new(version: ApiVersion) -> Result<Self, Error> {
+    pub fn new() -> Result<Self, Error> {
         let _ = rustls::crypto::ring::default_provider().install_default();
 
         let http = reqwest::Client::builder()
@@ -73,24 +80,22 @@ impl Client {
             .user_agent(concat!("eso-addons-manager/", env!("CARGO_PKG_VERSION")))
             .build()?;
 
-        Ok(Self { http, version })
+        Ok(Self { http })
     }
 
-    fn prefix(&self) -> &'static str {
-        match self.version {
+    fn prefix(version: ApiVersion) -> &'static str {
+        match version {
             ApiVersion::V3 => "https://api.mmoui.com/v3/game/ESO",
             ApiVersion::V4 => "https://api.mmoui.com/v4/game/ESO",
         }
     }
 
-    pub fn version(&self) -> ApiVersion {
-        self.version
-    }
+    pub async fn file_details(&self, version: ApiVersion, uid: &str) -> Result<Details, Error> {
+        let raw = self
+            .get_raw(version, &format!("filedetails/{uid}.json"))
+            .await?;
 
-    pub async fn file_details(&self, uid: &str) -> Result<Details, Error> {
-        let raw = self.get_raw(&format!("filedetails/{uid}.json")).await?;
-
-        parse_details(self.version, &raw)
+        parse_details(version, &raw)
             .map_err(Error::parse)?
             .into_iter()
             .next()
@@ -113,8 +118,8 @@ impl Client {
         Ok(response.text().await?)
     }
 
-    pub async fn get_raw(&self, path: &str) -> Result<String, Error> {
-        let url = format!("{}/{path}", self.prefix());
+    pub(crate) async fn get_raw(&self, version: ApiVersion, path: &str) -> Result<String, Error> {
+        let url = format!("{}/{path}", Self::prefix(version));
         tracing::debug!("GET {url}");
         let response = self.http.get(url).send().await?.error_for_status()?;
 

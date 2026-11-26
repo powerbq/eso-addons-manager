@@ -939,6 +939,7 @@ version = "0.2.0"
 dependencies = [
  "codepage",
  "encoding_rs",
+ "futures",
  "md-5",
  "regex",
  "reqwest",

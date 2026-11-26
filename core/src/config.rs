@@ -27,6 +27,7 @@ const LOG_TO_FILE: &str = "LogToFile";
 const CHECK_FOR_UPDATES: &str = "CheckForUpdates";
 const NOTIFY_PRERELEASES: &str = "NotifyPrereleases";
 const API_VERSION: &str = "ApiVersion";
+const INCLUDE_OUTDATED: &str = "IncludeOutdated";
 const UPDATE_PRICES: &str = "UpdatePrices";
 const PRICE_REGION: &str = "PriceRegion";
 const SORT: &str = "Sort";
@@ -63,7 +64,7 @@ pub struct Config {
     pub log_to_file: bool,
     pub check_for_updates: bool,
     pub notify_prereleases: bool,
-    pub api_version: ApiVersion,
+    pub include_outdated: bool,
     pub update_prices: bool,
     pub price_region: Region,
     pub sort: SortOrder,
@@ -89,7 +90,7 @@ impl Default for Config {
             log_to_file: true,
             check_for_updates: true,
             notify_prereleases: false,
-            api_version: ApiVersion::default(),
+            include_outdated: false,
             update_prices: true,
             price_region: Region::default(),
             sort: SortOrder::default(),
@@ -169,9 +170,9 @@ impl Config {
                             LOG_TO_FILE => config.log_to_file = value == "true",
                             CHECK_FOR_UPDATES => config.check_for_updates = value == "true",
                             NOTIFY_PRERELEASES => config.notify_prereleases = value == "true",
-                            API_VERSION => {
-                                config.api_version =
-                                    ApiVersion::from_key(&value).unwrap_or_default()
+                            INCLUDE_OUTDATED => config.include_outdated = value == "true",
+                            API_VERSION if ApiVersion::from_key(&value) == Some(ApiVersion::V4) => {
+                                config.include_outdated = true;
                             }
                             _ => {}
                         }
@@ -262,7 +263,15 @@ impl Config {
                 },
             );
         }
-        set(GENERAL, API_VERSION, self.api_version.as_key());
+        set(
+            GENERAL,
+            INCLUDE_OUTDATED,
+            if self.include_outdated {
+                "true"
+            } else {
+                "false"
+            },
+        );
 
         set(CATALOGUE, SORT, self.sort.as_key());
         set(
@@ -615,20 +624,29 @@ mod tests {
     }
 
     #[test]
-    fn api_version_defaults_v3_and_round_trips() {
-        assert_eq!(Config::default().api_version, ApiVersion::V3);
-        assert_eq!(Config::parse("").unwrap().api_version, ApiVersion::V3);
+    fn include_outdated_defaults_off_and_round_trips() {
+        assert!(!Config::default().include_outdated);
+        assert!(!Config::parse("").unwrap().include_outdated);
 
         let config = Config {
-            api_version: ApiVersion::V4,
+            include_outdated: true,
             ..Config::default()
         };
         let text = config.to_ini_string();
-        assert!(text.contains("ApiVersion = v4"));
+        assert!(text.contains("IncludeOutdated = true"));
         assert_eq!(Config::parse(&text).unwrap(), config);
 
-        let fallback = Config::parse("[General]\nApiVersion = v9\n").unwrap();
-        assert_eq!(fallback.api_version, ApiVersion::V3);
+        // migration from the old v3/v4 toggle: v4 meant "show the outdated source"
+        assert!(
+            Config::parse("[General]\nApiVersion = v4\n")
+                .unwrap()
+                .include_outdated
+        );
+        assert!(
+            !Config::parse("[General]\nApiVersion = v3\n")
+                .unwrap()
+                .include_outdated
+        );
     }
 
     #[test]

@@ -7,9 +7,8 @@ use std::sync::LazyLock;
 use std::time::Instant;
 
 use eso_addons_manager_core::{
-    Addon, Category, Config, Filter, Query, Screenshot, SortOrder, api, bbcode, cache, store,
+    Addon, Config, Filter, Query, Screenshot, SortOrder, api, bbcode, cache, store,
 };
-use iced::futures::future;
 use iced::widget::operation::scroll_to;
 use iced::widget::{
     button, center, center_x, column, container, image, pane_grid, row, rule, scrollable, sensor,
@@ -56,6 +55,7 @@ static LIST_ID: LazyLock<iced::widget::Id> =
 
 pub struct Catalogue {
     client: api::Client,
+    versions: Vec<api::ApiVersion>,
     theme: Theme,
     state: State,
     width: Option<f32>,
@@ -131,7 +131,7 @@ impl Sections {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Loaded(Result<(Vec<Addon>, Vec<Category>), api::Error>),
+    Loaded(Result<Box<eso_addons_manager_core::Catalogue>, api::Error>),
     Retry,
     IconLoaded(String, Result<image::Handle, api::Error>),
     SearchChanged(String),
@@ -194,12 +194,17 @@ struct Context<'a> {
 }
 
 impl Catalogue {
-    pub fn new(client: api::Client, theme: Theme) -> (Self, Task<Message>) {
-        let task = load(client.clone());
+    pub fn new(
+        client: api::Client,
+        versions: Vec<api::ApiVersion>,
+        theme: Theme,
+    ) -> (Self, Task<Message>) {
+        let task = load(client.clone(), versions.clone());
 
         (
             Self {
                 client,
+                versions,
                 theme,
                 state: State::Loading,
                 width: None,
@@ -225,8 +230,8 @@ impl Catalogue {
 
     pub fn update(&mut self, message: Message, config: &Config, index: &cache::Index) -> Action {
         match message {
-            Message::Loaded(Ok((entries, categories))) => {
-                let catalogue = eso_addons_manager_core::Catalogue::new(entries, categories);
+            Message::Loaded(Ok(catalogue)) => {
+                let catalogue = *catalogue;
                 let query = Query {
                     text: String::new(),
                     sort: config.sort,
@@ -286,7 +291,7 @@ impl Catalogue {
             }
             Message::Retry => {
                 self.state = State::Loading;
-                Action::Run(load(self.client.clone()))
+                Action::Run(load(self.client.clone(), self.versions.clone()))
             }
             Message::Resized(size) => {
                 self.width = Some(size.width);
@@ -348,6 +353,10 @@ impl Catalogue {
 
     pub fn client(&self) -> &api::Client {
         &self.client
+    }
+
+    pub fn versions(&self) -> &[api::ApiVersion] {
+        &self.versions
     }
 
     pub fn catalogue(&self) -> Option<&eso_addons_manager_core::Catalogue> {
@@ -465,12 +474,14 @@ impl Loaded {
                 let Some(addon) = self.catalogue.addon(index) else {
                     return Action::None;
                 };
+                let uid = addon.uid.clone();
+                let version = self.catalogue.origin_of(&uid).unwrap_or_default();
 
                 self.selected = Some(index);
                 self.details = Details::Loading;
                 self.section = Section::Description;
 
-                Action::Run(load_details(client.clone(), addon.uid.clone()))
+                Action::Run(load_details(client.clone(), version, uid))
             }
             Message::DetailsLoaded(uid, result) => {
                 if self.selected_addon().is_none_or(|addon| addon.uid != uid) {
@@ -1073,17 +1084,17 @@ fn labelled<'a>(label: String, control: impl Into<Element<'a, Message>>) -> Elem
     .into()
 }
 
-fn load(client: api::Client) -> Task<Message> {
+fn load(client: api::Client, versions: Vec<api::ApiVersion>) -> Task<Message> {
     Task::perform(
         async move {
-            let (entries, categories) =
-                future::join(store::file_list(&client), store::categories(&client)).await;
-            let categories = categories.unwrap_or_else(|error| {
-                tracing::warn!("cannot load categories: {error}");
-                Vec::new()
-            });
-
-            entries.map(|entries| (entries, categories))
+            store::catalogue(&client, &versions)
+                .await
+                .map(|(addons, categories, origin)| {
+                    Box::new(
+                        eso_addons_manager_core::Catalogue::new(addons, categories)
+                            .with_origin(origin),
+                    )
+                })
         },
         Message::Loaded,
     )
@@ -1096,12 +1107,12 @@ fn load_icon(client: api::Client, category_id: String, url: String) -> Task<Mess
     )
 }
 
-fn load_details(client: api::Client, uid: String) -> Task<Message> {
+fn load_details(client: api::Client, version: api::ApiVersion, uid: String) -> Task<Message> {
     let request = uid.clone();
 
     Task::perform(
         async move {
-            let details = client.file_details(&request).await?;
+            let details = client.file_details(version, &request).await?;
             let convert = |source: &str| {
                 if source.trim().is_empty() {
                     String::new()

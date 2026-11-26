@@ -125,8 +125,13 @@ pub fn cached(path: &Path, md5: &str) -> Option<Vec<u8>> {
         .filter(|bytes| md5.eq_ignore_ascii_case(&md5_hex(bytes)))
 }
 
-pub async fn fetch(client: &api::Client, uid: &str, path: &Path) -> Result<Download, Error> {
-    let details = client.file_details(uid).await?;
+pub async fn fetch(
+    client: &api::Client,
+    version: api::ApiVersion,
+    uid: &str,
+    path: &Path,
+) -> Result<Download, Error> {
+    let details = client.file_details(version, uid).await?;
     let bytes = match cached(path, &details.md5) {
         Some(bytes) => {
             tracing::debug!("cache hit for {uid} ({})", details.version);

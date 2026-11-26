@@ -19,6 +19,7 @@ pub enum Update {
 
 pub fn start(
     client: api::Client,
+    versions: Vec<api::ApiVersion>,
     catalogue: Catalogue,
     config: Config,
     index: cache::Index,
@@ -29,9 +30,9 @@ pub fn start(
 
     let job = async move {
         let catalogue = if refresh {
-            match store::file_list(&client).await {
-                Ok(entries) => {
-                    let catalogue = catalogue.with_addons(entries);
+            match store::catalogue(&client, &versions).await {
+                Ok((addons, categories, origin)) => {
+                    let catalogue = Catalogue::new(addons, categories).with_origin(origin);
                     let _ = sender.unbounded_send(Update::Refreshed(catalogue.clone()));
                     catalogue
                 }
@@ -351,10 +352,14 @@ fn run(
 
     let plan = sync::plan(
         &input,
-        |uid, path| handle.block_on(cache::fetch(client, uid, path)),
+        |uid, path| {
+            let version = catalogue.origin_of(uid).unwrap_or_default();
+            handle.block_on(cache::fetch(client, version, uid, path))
+        },
         |uid| {
+            let version = catalogue.origin_of(uid).unwrap_or_default();
             handle
-                .block_on(client.file_details(uid))
+                .block_on(client.file_details(version, uid))
                 .ok()
                 .map(|details| store::links(&details))
         },
