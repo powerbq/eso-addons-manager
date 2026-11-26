@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backup;
 mod choice;
 mod format;
 mod html;
@@ -11,6 +12,7 @@ mod migrate;
 mod modal;
 mod paths;
 mod report;
+mod rotate;
 mod screen;
 mod sync;
 mod update;
@@ -1357,7 +1359,10 @@ impl Manager {
         core_sync::record(catalogue, &mut self.config);
         core_sync::record_archives(plan, &mut self.index);
         if plan.is_applicable() {
-            core_sync::clean_config(plan, catalogue, &mut self.config);
+            let pruned = core_sync::clean_config(plan, catalogue, &mut self.config);
+            if !pruned.is_empty() {
+                backup::before_auto_removal(&self.paths.config_file, &pruned);
+            }
             core_sync::clean_archives(plan, &mut self.index);
             self.synced_addons = self.config.addons.keys().cloned().collect();
         }

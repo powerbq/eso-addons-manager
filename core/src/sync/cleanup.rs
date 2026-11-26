@@ -21,12 +21,37 @@ pub fn record_archives(plan: &Plan, index: &mut Index) {
     }
 }
 
-pub fn clean_config(plan: &Plan, catalogue: &Catalogue, config: &mut Config) {
+/// What `clean_config` cut automatically (not at the user's request) from the installed set and
+/// favourites, so a caller can snapshot the settings file before it is overwritten.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Pruned {
+    pub addons: Vec<String>,
+    pub favourites: Vec<String>,
+}
+
+impl Pruned {
+    pub fn is_empty(&self) -> bool {
+        self.addons.is_empty() && self.favourites.is_empty()
+    }
+}
+
+pub fn clean_config(plan: &Plan, catalogue: &Catalogue, config: &mut Config) -> Pruned {
     let known: HashSet<&str> = catalogue
         .addons()
         .iter()
         .map(|addon| addon.uid.as_str())
         .collect();
+
+    let unknown = |map: &std::collections::BTreeMap<String, String>| {
+        map.keys()
+            .filter(|uid| !known.contains(uid.as_str()))
+            .cloned()
+            .collect()
+    };
+    let pruned = Pruned {
+        addons: unknown(&config.addons),
+        favourites: unknown(&config.favourites),
+    };
 
     config.addons.retain(|uid, _| known.contains(uid.as_str()));
     config
@@ -36,6 +61,8 @@ pub fn clean_config(plan: &Plan, catalogue: &Catalogue, config: &mut Config) {
     config
         .selected_libraries
         .retain(|directory, _| plan.selected.contains(directory));
+
+    pruned
 }
 
 pub fn clean_archives(plan: &Plan, index: &mut Index) {

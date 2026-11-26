@@ -158,16 +158,11 @@ impl State {
         if !current.exists() {
             return;
         }
-        let numbered = |n: usize| self.directory.join(format!("{LOG_NAME}.{n}{LOG_SUFFIX}"));
-
-        let _ = fs::remove_file(numbered(KEEP_FILES - 1));
-        for n in (1..KEEP_FILES - 1).rev() {
-            let from = numbered(n);
-            if from.exists() {
-                let _ = fs::rename(from, numbered(n + 1));
-            }
-        }
-        let _ = fs::rename(&current, numbered(1));
+        crate::rotate::make_room(&self.directory, LOG_NAME, LOG_SUFFIX, KEEP_FILES);
+        let _ = fs::rename(
+            &current,
+            self.directory.join(format!("{LOG_NAME}.1{LOG_SUFFIX}")),
+        );
     }
 
     fn remove_logs(&self, keep: Option<&Path>) {

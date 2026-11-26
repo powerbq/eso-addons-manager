@@ -11,7 +11,7 @@ use crate::cache::Archive;
 use crate::deps;
 
 pub use apply::apply;
-pub use cleanup::{clean_archives, clean_cache, clean_config, record, record_archives};
+pub use cleanup::{Pruned, clean_archives, clean_cache, clean_config, record, record_archives};
 pub(crate) use plan::custom_archives;
 pub use plan::{Input, Source, plan};
 

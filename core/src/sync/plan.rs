@@ -1519,7 +1519,9 @@ mod tests {
 
         let (plan, _) = run(&setup, &catalogue, &config, &server);
         super::super::record(&catalogue, &mut config);
-        super::super::clean_config(&plan, &catalogue, &mut config);
+        let pruned = super::super::clean_config(&plan, &catalogue, &mut config);
+        assert_eq!(pruned.addons, ["99"]);
+        assert_eq!(pruned.favourites, ["77"]);
         super::super::record_archives(&plan, &mut setup.index);
         super::super::clean_archives(&plan, &mut setup.index);
         super::super::clean_cache(&plan, &setup.cache).unwrap();
