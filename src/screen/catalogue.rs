@@ -3,8 +3,7 @@ mod gallery;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::path::Path;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use std::time::Instant;
 
 use eso_addons_manager_core::{
@@ -57,7 +56,6 @@ static LIST_ID: LazyLock<iced::widget::Id> =
 
 pub struct Catalogue {
     client: api::Client,
-    api_dir: Arc<Path>,
     theme: Theme,
     state: State,
     width: Option<f32>,
@@ -196,13 +194,12 @@ struct Context<'a> {
 }
 
 impl Catalogue {
-    pub fn new(client: api::Client, api_dir: Arc<Path>, theme: Theme) -> (Self, Task<Message>) {
-        let task = load(client.clone(), api_dir.clone());
+    pub fn new(client: api::Client, theme: Theme) -> (Self, Task<Message>) {
+        let task = load(client.clone());
 
         (
             Self {
                 client,
-                api_dir,
                 theme,
                 state: State::Loading,
                 width: None,
@@ -289,7 +286,7 @@ impl Catalogue {
             }
             Message::Retry => {
                 self.state = State::Loading;
-                Action::Run(load(self.client.clone(), self.api_dir.clone()))
+                Action::Run(load(self.client.clone()))
             }
             Message::Resized(size) => {
                 self.width = Some(size.width);
@@ -309,7 +306,7 @@ impl Catalogue {
                     return Action::None;
                 };
 
-                loaded.update(&self.client, &self.api_dir, message, config, index)
+                loaded.update(&self.client, message, config, index)
             }
         }
     }
@@ -407,7 +404,6 @@ impl Loaded {
     fn update(
         &mut self,
         client: &api::Client,
-        api: &Arc<Path>,
         message: Message,
         config: &Config,
         index: &cache::Index,
@@ -474,7 +470,7 @@ impl Loaded {
                 self.details = Details::Loading;
                 self.section = Section::Description;
 
-                Action::Run(load_details(client.clone(), api.clone(), addon.uid.clone()))
+                Action::Run(load_details(client.clone(), addon.uid.clone()))
             }
             Message::DetailsLoaded(uid, result) => {
                 if self.selected_addon().is_none_or(|addon| addon.uid != uid) {
@@ -1077,14 +1073,11 @@ fn labelled<'a>(label: String, control: impl Into<Element<'a, Message>>) -> Elem
     .into()
 }
 
-fn load(client: api::Client, api: Arc<Path>) -> Task<Message> {
+fn load(client: api::Client) -> Task<Message> {
     Task::perform(
         async move {
-            let (entries, categories) = future::join(
-                store::file_list(&client, &api),
-                store::categories(&client, &api),
-            )
-            .await;
+            let (entries, categories) =
+                future::join(store::file_list(&client), store::categories(&client)).await;
             let categories = categories.unwrap_or_else(|error| {
                 tracing::warn!("cannot load categories: {error}");
                 Vec::new()
@@ -1103,12 +1096,12 @@ fn load_icon(client: api::Client, category_id: String, url: String) -> Task<Mess
     )
 }
 
-fn load_details(client: api::Client, api: Arc<Path>, uid: String) -> Task<Message> {
+fn load_details(client: api::Client, uid: String) -> Task<Message> {
     let request = uid.clone();
 
     Task::perform(
         async move {
-            let details = store::file_details(&client, &api, &request).await?;
+            let details = client.file_details(&request).await?;
             let convert = |source: &str| {
                 if source.trim().is_empty() {
                     String::new()

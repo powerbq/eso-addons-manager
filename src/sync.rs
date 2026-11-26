@@ -28,12 +28,8 @@ pub fn start(
     let (sender, receiver) = mpsc::unbounded();
 
     let job = async move {
-        let api = paths
-            .cache_dir
-            .join(store::DIRECTORY)
-            .join(config.api_version.as_key());
         let catalogue = if refresh {
-            match store::file_list(&client, &api).await {
+            match store::file_list(&client).await {
                 Ok(entries) => {
                     let catalogue = catalogue.with_addons(entries);
                     let _ = sender.unbounded_send(Update::Refreshed(catalogue.clone()));
@@ -343,10 +339,6 @@ fn run(
 ) -> Result<Plan, String> {
     let target = PathBuf::from(&config.target_directory);
     let addons = paths.cache_dir.join(cache::DIRECTORY);
-    let api = paths
-        .cache_dir
-        .join(store::DIRECTORY)
-        .join(config.api_version.as_key());
     let ttc_cache = paths.cache_dir.join(ttc::DIRECTORY);
     let input = sync::Input {
         catalogue,
@@ -361,8 +353,9 @@ fn run(
         &input,
         |uid, path| handle.block_on(cache::fetch(client, uid, path)),
         |uid| {
-            store::cached_details(&api, uid, config.api_version)
-                .or_else(|| handle.block_on(store::file_details(client, &api, uid)).ok())
+            handle
+                .block_on(client.file_details(uid))
+                .ok()
                 .map(|details| store::links(&details))
         },
         |region| {

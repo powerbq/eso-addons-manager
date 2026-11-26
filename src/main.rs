@@ -19,12 +19,12 @@ mod widget;
 use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::TAU;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Instant;
 
 use eso_addons_manager_core::clean as core_clean;
 use eso_addons_manager_core::sync as core_sync;
-use eso_addons_manager_core::{Config, api, cache, deps, scan, store, ttc};
+use eso_addons_manager_core::{Config, api, cache, deps, scan, ttc};
 use iced::futures::StreamExt;
 use iced::futures::channel::mpsc;
 use iced::theme::Palette;
@@ -69,42 +69,6 @@ const PALETTE: Palette = Palette {
 };
 const SECONDARY_TEXT_MIX: f32 = 0.35;
 const SECONDARY_TEXT_STEP: f32 = 0.05;
-
-fn clean_api_cache(api_root: &Path) {
-    if api_root.is_dir() {
-        core_clean::retain(api_root, |path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| {
-                    name == api::ApiVersion::V3.as_key() || name == api::ApiVersion::V4.as_key()
-                })
-        })
-        .unwrap_or_else(|error| tracing::warn!("cannot clean the API cache: {error}"));
-    }
-
-    for version in [api::ApiVersion::V3, api::ApiVersion::V4] {
-        let api = api_root.join(version.as_key());
-        if !api.is_dir() {
-            continue;
-        }
-
-        core_clean::retain(&api, store::is_cache_entry)
-            .unwrap_or_else(|error| tracing::warn!("cannot clean the API cache: {error}"));
-
-        let Some(entries) = store::cached_file_list(&api, version) else {
-            continue;
-        };
-        let uids: std::collections::HashSet<String> =
-            entries.into_iter().map(|entry| entry.uid).collect();
-
-        core_clean::retain(&api.join(store::DETAILS), |path| {
-            path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .is_some_and(|uid| uids.contains(uid))
-        })
-        .unwrap_or_else(|error| tracing::warn!("cannot clean the filedetails cache: {error}"));
-    }
-}
 
 fn theme() -> Theme {
     Theme::custom_with_fn("Dark", PALETTE, |palette| {
@@ -158,13 +122,12 @@ pub fn main() -> iced::Result {
     core_clean::retain(&paths.cache_dir, |path| {
         matches!(
             path.file_name().and_then(|name| name.to_str()),
-            Some(cache::DIRECTORY | ttc::DIRECTORY | store::DIRECTORY)
+            Some(cache::DIRECTORY | ttc::DIRECTORY)
         )
     })
     .unwrap_or_else(|error| tracing::warn!("cannot clean the cache directory: {error}"));
     core_clean::retain(&paths.cache_dir.join(ttc::DIRECTORY), ttc::is_cache_file)
         .unwrap_or_else(|error| tracing::warn!("cannot clean the TTC cache: {error}"));
-    clean_api_cache(&paths.cache_dir.join(store::DIRECTORY));
     core_clean::retain(&paths.log_dir, log::is_log)
         .unwrap_or_else(|error| tracing::warn!("cannot clean the log directory: {error}"));
     if let Some(run_dir) = paths.lock_file.parent() {
@@ -258,7 +221,10 @@ enum Tab {
 
 enum Activity {
     Scan,
-    Sync { toggle: Option<Toggle> },
+    Sync {
+        toggle: Option<Toggle>,
+        on_launch: bool,
+    },
 }
 
 struct Toggle {
@@ -454,15 +420,9 @@ impl Manager {
             }
         }
 
-        let api_dir: Arc<Path> = Arc::from(
-            paths
-                .cache_dir
-                .join(store::DIRECTORY)
-                .join(config.api_version.as_key()),
-        );
         let (screen, task) = match api::Client::new(config.api_version) {
             Ok(client) => {
-                let (catalogue, task) = catalogue::Catalogue::new(client, api_dir, theme());
+                let (catalogue, task) = catalogue::Catalogue::new(client, theme());
                 (Screen::Catalogue(catalogue), task.map(Message::Catalogue))
             }
             Err(error) => {
@@ -567,7 +527,7 @@ impl Manager {
                             return task;
                         }
                         tracing::info!("sync on launch");
-                        Task::batch([task, self.start_sync(None, false)])
+                        Task::batch([task, self.start_sync(None, true, true)])
                     }
                     catalogue::Action::ToggleInstalled { uid, name } => {
                         if self.activity.is_some() {
@@ -582,7 +542,7 @@ impl Manager {
                         };
                         save(&self.config, &self.paths.config_file, &reason);
                         catalogue.refresh(&self.config, &self.index);
-                        self.start_sync(Some(Toggle { uid, previous }), true)
+                        self.start_sync(Some(Toggle { uid, previous }), true, false)
                     }
                     catalogue::Action::ToggleFavourite { uid, name } => {
                         let reason = if self.config.favourites.remove(&uid).is_none() {
@@ -833,7 +793,7 @@ impl Manager {
             }
             Message::SyncRequested => {
                 tracing::info!("sync requested");
-                self.start_sync(None, true)
+                self.start_sync(None, true, false)
             }
             Message::LanguageSelected(language) => {
                 self.menu = None;
@@ -988,15 +948,9 @@ impl Manager {
                     ),
                 );
 
-                let api_dir: Arc<Path> = Arc::from(
-                    self.paths
-                        .cache_dir
-                        .join(store::DIRECTORY)
-                        .join(self.config.api_version.as_key()),
-                );
                 match api::Client::new(self.config.api_version) {
                     Ok(client) => {
-                        let (catalogue, task) = catalogue::Catalogue::new(client, api_dir, theme());
+                        let (catalogue, task) = catalogue::Catalogue::new(client, theme());
                         self.screen = Screen::Catalogue(catalogue);
                         task.map(Message::Catalogue)
                     }
@@ -1167,7 +1121,7 @@ impl Manager {
                         let reason = format!("{} provider choices saved", chosen.len());
                         self.config.selected_libraries.extend(chosen);
                         save(&self.config, &self.paths.config_file, &reason);
-                        self.start_sync(toggle, false)
+                        self.start_sync(toggle, false, false)
                     }
                     AfterChoice::Scan { scanned } => {
                         let chosen: Vec<String> = chosen.into_iter().map(|(_, uid)| uid).collect();
@@ -1268,27 +1222,29 @@ impl Manager {
                 Task::none()
             }
             Message::Sync(sync::Update::Finished(result)) => {
-                let toggle = match self.activity.take() {
-                    Some(Activity::Sync { toggle }) => toggle,
-                    _ => None,
+                let (toggle, on_launch) = match self.activity.take() {
+                    Some(Activity::Sync { toggle, on_launch }) => (toggle, on_launch),
+                    _ => (None, false),
                 };
-                self.dialog = Some(match result {
+                match result {
                     Ok(plan) => {
                         let report = self.finish_sync(&plan);
-                        if plan.failed.is_empty() && !plan.choices.is_empty() {
+                        self.dialog = Some(if plan.failed.is_empty() && !plan.choices.is_empty() {
                             self.choose_providers(&plan.choices, AfterChoice::Sync { toggle })
                         } else {
                             details(fl!("sync-complete"), report)
-                        }
+                        });
                     }
                     Err(error) => {
                         tracing::error!("sync failed: {error}");
-                        Dialog::Report {
-                            title: fl!("sync-failed"),
-                            message: error,
+                        if !on_launch {
+                            self.dialog = Some(Dialog::Report {
+                                title: fl!("sync-failed"),
+                                message: error,
+                            });
                         }
                     }
-                });
+                }
                 if let Some(since) = self.sync_since.take() {
                     tracing::info!("sync run took {:?}", since.elapsed());
                 }
@@ -1297,7 +1253,12 @@ impl Manager {
         }
     }
 
-    fn start_sync(&mut self, toggle: Option<Toggle>, refresh: bool) -> Task<Message> {
+    fn start_sync(
+        &mut self,
+        toggle: Option<Toggle>,
+        refresh: bool,
+        on_launch: bool,
+    ) -> Task<Message> {
         if self.config.target_directory.trim().is_empty() {
             tracing::warn!("sync skipped: no AddOns folder selected");
             return Task::none();
@@ -1309,7 +1270,7 @@ impl Manager {
             return Task::none();
         };
 
-        self.activity = Some(Activity::Sync { toggle });
+        self.activity = Some(Activity::Sync { toggle, on_launch });
         self.sync_since = Some(Instant::now());
         sync::start(
             screen.client().clone(),
@@ -1838,7 +1799,7 @@ impl Manager {
                         busy: self.activity.is_some(),
                         can_install: !self.config.target_directory.trim().is_empty(),
                         installing: match &self.activity {
-                            Some(Activity::Sync { toggle }) => {
+                            Some(Activity::Sync { toggle, .. }) => {
                                 toggle.as_ref().map(|toggle| toggle.uid.as_str())
                             }
                             _ => None,

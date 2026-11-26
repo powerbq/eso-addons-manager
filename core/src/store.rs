@@ -1,60 +1,27 @@
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::api::{self, ApiVersion, Client};
+use crate::api::{self, Client};
 use crate::bbcode;
 use crate::catalogue::{Addon, Category, Details};
 
-pub const DIRECTORY: &str = "api";
-pub const FILE_LIST: &str = "filelist.json";
-pub const CATEGORY_LIST: &str = "categorylist.json";
-pub const DETAILS: &str = "filedetails";
+const FILE_LIST: &str = "filelist.json";
+const CATEGORY_LIST: &str = "categorylist.json";
 
 static INFO_LINK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)esoui\.com/downloads/info(\d+)-").unwrap());
 static FILEINFO_LINK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)esoui\.com/\S*?fileinfo\.php\?\S*?\bid=(\d+)").unwrap());
 
-pub async fn file_list(client: &Client, api: &Path) -> Result<Vec<Addon>, api::Error> {
-    fetch_cached(client, FILE_LIST, &api.join(FILE_LIST), |raw| {
-        api::parse_file_list(client.version(), raw)
-    })
-    .await
+pub async fn file_list(client: &Client) -> Result<Vec<Addon>, api::Error> {
+    let raw = client.get_raw(FILE_LIST).await?;
+    api::parse_file_list(client.version(), &raw).map_err(api::Error::parse)
 }
 
-pub async fn categories(client: &Client, api: &Path) -> Result<Vec<Category>, api::Error> {
-    fetch_cached(client, CATEGORY_LIST, &api.join(CATEGORY_LIST), |raw| {
-        api::parse_categories(client.version(), raw)
-    })
-    .await
-}
-
-pub async fn file_details(client: &Client, api: &Path, uid: &str) -> Result<Details, api::Error> {
-    let remote = format!("{DETAILS}/{uid}.json");
-    let details = fetch_cached(client, &remote, &details_path(api, uid), |raw| {
-        api::parse_details(client.version(), raw)
-    })
-    .await?;
-
-    details
-        .into_iter()
-        .next()
-        .ok_or_else(|| api::Error::NotFound(uid.to_owned()))
-}
-
-pub fn cached_details(api: &Path, uid: &str, version: ApiVersion) -> Option<Details> {
-    let raw = fs::read_to_string(details_path(api, uid)).ok()?;
-
-    api::parse_details(version, &raw).ok()?.into_iter().next()
-}
-
-pub fn cached_file_list(api: &Path, version: ApiVersion) -> Option<Vec<Addon>> {
-    let raw = fs::read_to_string(api.join(FILE_LIST)).ok()?;
-
-    api::parse_file_list(version, &raw).ok()
+pub async fn categories(client: &Client) -> Result<Vec<Category>, api::Error> {
+    let raw = client.get_raw(CATEGORY_LIST).await?;
+    api::parse_categories(client.version(), &raw).map_err(api::Error::parse)
 }
 
 pub fn links(details: &Details) -> Vec<u32> {
@@ -70,62 +37,12 @@ pub fn links(details: &Details) -> Vec<u32> {
     uids
 }
 
-pub fn is_cache_entry(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some(FILE_LIST | CATEGORY_LIST | DETAILS)
-    )
-}
-
-async fn fetch_cached<R>(
-    client: &Client,
-    remote: &str,
-    path: &Path,
-    parse: impl Fn(&str) -> Result<R, serde_json::Error>,
-) -> Result<R, api::Error> {
-    match client.get_raw(remote).await {
-        Ok(raw) => {
-            let parsed = parse(&raw).map_err(api::Error::parse)?;
-            write(path, raw.as_bytes());
-            Ok(parsed)
-        }
-        Err(error) => match fs::read_to_string(path) {
-            Ok(raw) => {
-                tracing::warn!("using the cached {remote}: {error}");
-                parse(&raw).map_err(api::Error::parse)
-            }
-            Err(_) => Err(error),
-        },
-    }
-}
-
-fn details_path(api: &Path, uid: &str) -> PathBuf {
-    api.join(DETAILS).join(format!("{uid}.json"))
-}
-
 fn esoui_uid(url: &str) -> Option<u32> {
     INFO_LINK
         .captures(url)
         .or_else(|| FILEINFO_LINK.captures(url))
         .and_then(|captures| captures.get(1))
         .and_then(|value| value.as_str().parse().ok())
-}
-
-fn write(path: &Path, bytes: &[u8]) {
-    if let Some(parent) = path.parent()
-        && let Err(error) = fs::create_dir_all(parent)
-    {
-        tracing::warn!("cannot create {}: {error}", parent.display());
-        return;
-    }
-
-    let mut temporary = path.as_os_str().to_owned();
-    temporary.push(".tmp");
-    let temporary = PathBuf::from(temporary);
-
-    if let Err(error) = fs::write(&temporary, bytes).and_then(|()| fs::rename(&temporary, path)) {
-        tracing::warn!("cannot cache {}: {error}", path.display());
-    }
 }
 
 #[cfg(test)]
