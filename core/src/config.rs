@@ -19,6 +19,7 @@ const ADDONS: &str = "AddOns";
 const FAVOURITES: &str = "Favourites";
 const SELECTED_LIBRARIES: &str = "SelectedLibraries";
 const EXCLUSIONS: &str = "Exclusions";
+const PATCH: &str = "Patch";
 
 const TARGET_DIRECTORY: &str = "TargetDirectory";
 const SYNC_ON_LAUNCH: &str = "SyncOnLaunch";
@@ -35,6 +36,10 @@ const SORT_REVERSED: &str = "SortReversed";
 const FILTER_INSTALLED: &str = "FilterInstalled";
 const FILTER_FAVOURITES: &str = "FilterFavourites";
 const FILTER_DEPENDENCIES: &str = "FilterDependencies";
+const PATH: &str = "Path";
+const FROM: &str = "From";
+const TO: &str = "To";
+const ENABLED: &str = "Enabled";
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
@@ -53,6 +58,25 @@ impl From<io::Error> for Error {
 impl From<ini::ParseError> for Error {
     fn from(error: ini::ParseError) -> Self {
         Self::Parse(Arc::new(error))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Patch {
+    pub path: String,
+    pub from: String,
+    pub to: String,
+    pub enabled: bool,
+}
+
+impl Default for Patch {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            from: String::new(),
+            to: String::new(),
+            enabled: true,
+        }
     }
 }
 
@@ -76,6 +100,7 @@ pub struct Config {
     pub favourites: BTreeMap<String, String>,
     pub selected_libraries: BTreeMap<String, String>,
     pub exclusions: Vec<String>,
+    pub patches: Vec<Patch>,
     // Runtime-only (never read from the ini): when false, the update keys are omitted on save, so a
     // manager launched under `--no-update-check` leaves no dead update settings behind.
     pub write_update_keys: bool,
@@ -102,6 +127,7 @@ impl Default for Config {
             favourites: BTreeMap::new(),
             selected_libraries: BTreeMap::new(),
             exclusions: Vec::new(),
+            patches: Vec::new(),
             write_update_keys: true,
         }
     }
@@ -151,6 +177,7 @@ impl Config {
         let ini = Ini::load_from_str_opt(text, options)?;
 
         let mut config = Self::default();
+        let mut patches: BTreeMap<u32, Patch> = BTreeMap::new();
 
         for (section, properties) in ini.iter() {
             let Some(section) = section else {
@@ -216,9 +243,30 @@ impl Config {
                 EXCLUSIONS => config
                     .exclusions
                     .extend(entries.map(|(_, pattern)| pattern)),
-                _ => {}
+                // `[PatchN]` — one custom patch rule per section; the number is its order.
+                other => {
+                    if let Some(number) = other.strip_prefix(PATCH).and_then(|n| n.parse().ok()) {
+                        let mut patch = Patch::default();
+                        for (key, value) in entries {
+                            match key.as_str() {
+                                PATH => patch.path = value,
+                                FROM => patch.from = value,
+                                TO => patch.to = value,
+                                ENABLED => patch.enabled = value == "true",
+                                _ => {}
+                            }
+                        }
+                        // A rule needs both a path and a pattern to match; an empty `Path` or
+                        // `From` would match everything, so an incomplete section is not a rule.
+                        if !patch.path.is_empty() && !patch.from.is_empty() {
+                            patches.insert(number, patch);
+                        }
+                    }
+                }
             }
         }
+
+        config.patches = patches.into_values().collect();
 
         Ok(config)
     }
@@ -310,6 +358,18 @@ impl Config {
 
         for (index, pattern) in self.exclusions.iter().enumerate() {
             set(EXCLUSIONS, &index.to_string(), pattern);
+        }
+
+        for (index, patch) in self.patches.iter().enumerate() {
+            let section = format!("{PATCH}{}", index + 1);
+            set(&section, PATH, &patch.path);
+            set(&section, FROM, &patch.from);
+            set(&section, TO, &patch.to);
+            set(
+                &section,
+                ENABLED,
+                if patch.enabled { "true" } else { "false" },
+            );
         }
 
         let options = WriteOption {
@@ -435,6 +495,67 @@ mod tests {
             Config::parse(&config.to_ini_string()).unwrap().exclusions,
             config.exclusions
         );
+    }
+
+    #[test]
+    fn round_trips_patches_in_order() {
+        let config = Config {
+            patches: vec![
+                Patch {
+                    path: r"TamrielTradeCentre/.*\.lua".to_owned(),
+                    from: "foo".to_owned(),
+                    to: "bar".to_owned(),
+                    enabled: true,
+                },
+                Patch {
+                    path: r"SomeAddon/Main\.lua".to_owned(),
+                    from: "baz".to_owned(),
+                    to: "$1qux".to_owned(),
+                    enabled: false,
+                },
+            ],
+            ..Config::default()
+        };
+
+        let text = config.to_ini_string();
+        assert!(text.contains("[Patch1]"));
+        assert!(text.contains("[Patch2]"));
+        assert!(text.contains("Enabled = false"));
+        assert_eq!(Config::parse(&text).unwrap().patches, config.patches);
+    }
+
+    #[test]
+    fn reads_numbered_patch_sections_in_their_order() {
+        let config = Config::parse(
+            "[Patch2]\nPath = b\nFrom = x\nTo = y\nEnabled = false\n\
+             [Patch1]\nPath = a\nFrom = x\nTo = y\nEnabled = true\n",
+        )
+        .unwrap();
+
+        assert_eq!(config.patches.len(), 2);
+        assert_eq!(config.patches[0].path, "a");
+        assert!(config.patches[0].enabled);
+        assert_eq!(config.patches[1].path, "b");
+        assert!(!config.patches[1].enabled);
+    }
+
+    #[test]
+    fn skips_patch_section_without_a_path() {
+        let config = Config::parse("[Patch1]\nFrom = x\nTo = y\n").unwrap();
+        assert!(config.patches.is_empty());
+    }
+
+    #[test]
+    fn skips_patch_section_without_a_from() {
+        let config = Config::parse("[Patch1]\nPath = a\nTo = y\n").unwrap();
+        assert!(config.patches.is_empty());
+    }
+
+    #[test]
+    fn patch_enabled_defaults_true_when_key_absent() {
+        let config = Config::parse("[Patch1]\nPath = a\nFrom = x\nTo = y\n").unwrap();
+        assert_eq!(config.patches.len(), 1);
+        assert!(config.patches[0].enabled);
     }
 
     #[test]

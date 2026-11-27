@@ -1,6 +1,7 @@
 tab-catalogue = Каталог
 tab-libraries = Бібліотеки
 tab-exclusions = Винятки
+tab-patches = Патчі
 tab-log = Журнал
 
 menu-title = Меню
@@ -79,6 +80,16 @@ recommended = Рекомендовано
 exclusions-custom = Власні винятки — один регулярний вираз на рядок
 exclusions-automatic = Автоматично (зі встановлених аддонів)
 exclusions-automatic-none = Немає: жодному встановленому аддону вони не потрібні.
+patches-custom = Власні патчі — змінюють вміст відповідних файлів під час синхронізації
+patches-automatic = Автоматично (зі встановлених аддонів)
+patches-automatic-none = Немає: жодному встановленому аддону вони не потрібні.
+patches-enabled = Увімкнено
+patches-path = Шлях
+patches-from = Знайти
+patches-to = Заміна
+patches-add = Додати правило
+patches-hint = $1 вставляє знайдену групу; $$ — літеральний $
+patches-error-empty = «Шлях» і «Знайти» не можуть бути порожніми
 clear = Очистити
 save = Зберегти
 

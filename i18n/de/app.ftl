@@ -1,6 +1,7 @@
 tab-catalogue = Katalog
 tab-libraries = Bibliotheken
 tab-exclusions = Ausschlüsse
+tab-patches = Patches
 tab-log = Protokoll
 
 menu-title = Menü
@@ -78,6 +79,16 @@ recommended = Empfohlen
 exclusions-custom = Eigene Ausschlüsse — ein regulärer Ausdruck pro Zeile
 exclusions-automatic = Automatisch (aus installierten Addons)
 exclusions-automatic-none = Keine: Kein installiertes Addon benötigt sie.
+patches-custom = Eigene Patches — ändern passende Dateien beim Abgleich
+patches-automatic = Automatisch (aus installierten Addons)
+patches-automatic-none = Keine: Kein installiertes Addon benötigt sie.
+patches-enabled = Aktiv
+patches-path = Pfad
+patches-from = Suchen
+patches-to = Ersetzen
+patches-add = Regel hinzufügen
+patches-hint = $1 fügt eine Treffergruppe ein; $$ ist ein literales $
+patches-error-empty = Pfad und Suchen dürfen nicht leer sein
 clear = Leeren
 save = Speichern
 

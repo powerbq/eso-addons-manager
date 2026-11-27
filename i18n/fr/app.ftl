@@ -1,6 +1,7 @@
 tab-catalogue = Catalogue
 tab-libraries = Bibliothèques
 tab-exclusions = Exclusions
+tab-patches = Correctifs
 tab-log = Journal
 
 menu-title = Menu
@@ -78,6 +79,16 @@ recommended = Recommandé
 exclusions-custom = Exclusions personnalisées — une expression régulière par ligne
 exclusions-automatic = Automatique (à partir des addons installés)
 exclusions-automatic-none = Aucune : aucun addon installé n’en a besoin.
+patches-custom = Correctifs personnalisés — modifient les fichiers correspondants lors de la synchronisation
+patches-automatic = Automatique (à partir des addons installés)
+patches-automatic-none = Aucun : aucun addon installé n’en a besoin.
+patches-enabled = Activé
+patches-path = Chemin
+patches-from = Rechercher
+patches-to = Remplacement
+patches-add = Ajouter une règle
+patches-hint = $1 insère un groupe capturé ; $$ correspond à un $ littéral
+patches-error-empty = Chemin et Rechercher ne peuvent pas être vides
 clear = Effacer
 save = Enregistrer
 

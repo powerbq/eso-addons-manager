@@ -1,6 +1,7 @@
 tab-catalogue = Catálogo
 tab-libraries = Bibliotecas
 tab-exclusions = Exclusiones
+tab-patches = Parches
 tab-log = Registro
 
 menu-title = Menú
@@ -78,6 +79,16 @@ recommended = Recomendado
 exclusions-custom = Exclusiones personalizadas: una expresión regular por línea
 exclusions-automatic = Automático (a partir de los complementos instalados)
 exclusions-automatic-none = Ninguna: ningún complemento instalado las necesita.
+patches-custom = Parches personalizados: reescriben los archivos coincidentes al sincronizar
+patches-automatic = Automático (a partir de los complementos instalados)
+patches-automatic-none = Ninguno: ningún complemento instalado los necesita.
+patches-enabled = Activado
+patches-path = Ruta
+patches-from = Buscar
+patches-to = Reemplazo
+patches-add = Añadir regla
+patches-hint = $1 inserta un grupo coincidente; $$ es un $ literal
+patches-error-empty = Ruta y Buscar no pueden estar vacíos
 clear = Borrar
 save = Guardar
 

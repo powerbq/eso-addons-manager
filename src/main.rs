@@ -46,7 +46,7 @@ use crate::menu::{MENUS, Menu};
 use crate::modal::{backdrop, dialog_style};
 use crate::report::{Line, Report};
 use crate::screen::log::Log;
-use crate::screen::{Screen, catalogue, exclusions, libraries};
+use crate::screen::{Screen, catalogue, exclusions, libraries, patches};
 use crate::widget::{
     BAR_BUTTON_PADDING, BODY_TEXT_SIZE, SPACING_L, SPACING_M, SPACING_M_NUDGE, SPACING_S_NUDGE,
     SPACING_XL, SPACING_XXS, SURFACE_PADDING, button_style, open_url, secondary, single_line,
@@ -208,6 +208,7 @@ struct Manager {
     menu_total_widths: BTreeMap<Menu, f32>,
     tab: Tab,
     exclusions: exclusions::Exclusions,
+    patches: patches::Patches,
     log: Log,
     file_log: log::FileLog,
     paths: paths::Paths,
@@ -220,6 +221,7 @@ enum Tab {
     Catalogue,
     Libraries,
     Exclusions,
+    Patches,
     Log,
 }
 
@@ -343,6 +345,7 @@ enum Message {
     TabSelected(Tab),
     Libraries(libraries::Message),
     Exclusions(exclusions::Message),
+    Patches(patches::Message),
     CloseRequested,
     MenuToggled(Menu),
     MenuHovered(Menu),
@@ -431,6 +434,7 @@ impl Manager {
                         &BTreeSet::new(),
                         false,
                     ),
+                    patches: patches::Patches::new(&Config::default(), &BTreeSet::new()),
                     log: Log::default(),
                     file_log,
                     paths,
@@ -511,6 +515,7 @@ impl Manager {
                 &installed_uids(&config, &index),
                 config.update_prices,
             ),
+            patches: patches::Patches::new(&config, &installed_uids(&config, &index)),
             log: Log::default(),
             file_log,
             paths,
@@ -965,6 +970,8 @@ impl Manager {
                     &installed_uids(&self.config, &self.index),
                     self.config.update_prices,
                 );
+                self.patches
+                    .refresh(&installed_uids(&self.config, &self.index));
                 Task::none()
             }
             Message::PriceRegionSelected(region) => {
@@ -1105,6 +1112,8 @@ impl Manager {
                     &installed_uids(&self.config, &self.index),
                     self.config.update_prices,
                 );
+                self.patches
+                    .refresh(&installed_uids(&self.config, &self.index));
                 Task::none()
             }
             Message::Libraries(libraries::Message::Selected { directory, uid }) => {
@@ -1137,6 +1146,14 @@ impl Manager {
                 if let exclusions::Action::Save(patterns) = self.exclusions.update(message) {
                     let reason = format!("exclusions updated: {} patterns", patterns.len());
                     self.config.exclusions = patterns;
+                    save(&self.config, &self.paths.config_file, &reason);
+                }
+                Task::none()
+            }
+            Message::Patches(message) => {
+                if let patches::Action::Save(rules) = self.patches.update(message) {
+                    let reason = format!("patches updated: {} rules", rules.len());
+                    self.config.patches = rules;
                     save(&self.config, &self.paths.config_file, &reason);
                 }
                 Task::none()
@@ -1380,6 +1397,8 @@ impl Manager {
                             &installed_uids(&config, &self.index),
                             config.update_prices,
                         );
+                        self.patches =
+                            patches::Patches::new(&config, &installed_uids(&config, &self.index));
                         self.synced_addons = config.addons.keys().cloned().collect();
                         self.config = config;
                     }
@@ -1560,6 +1579,8 @@ impl Manager {
             &installed_uids(&self.config, &self.index),
             self.config.update_prices,
         );
+        self.patches
+            .refresh(&installed_uids(&self.config, &self.index));
     }
 
     fn confirm_removal(
@@ -1653,6 +1674,8 @@ impl Manager {
             &installed_uids(&self.config, &self.index),
             self.config.update_prices,
         );
+        self.patches
+            .refresh(&installed_uids(&self.config, &self.index));
 
         report
     }
@@ -1722,6 +1745,8 @@ impl Manager {
                 &installed_uids(&self.config, &self.index),
                 self.config.update_prices,
             );
+            self.patches
+                .refresh(&installed_uids(&self.config, &self.index));
         }
 
         details(fl!("scan-complete"), report)
@@ -2083,6 +2108,7 @@ impl Manager {
                 tab(fl!("tab-catalogue"), Tab::Catalogue),
                 tab(fl!("tab-libraries"), Tab::Libraries),
                 tab(fl!("tab-exclusions"), Tab::Exclusions),
+                tab(fl!("tab-patches"), Tab::Patches),
                 tab(fl!("tab-log"), Tab::Log),
             ],
             Fill,
@@ -2117,6 +2143,10 @@ impl Manager {
                 None => center(text(fl!("loading-catalogue"))).into(),
             },
             Tab::Exclusions => self.exclusions.view(&self.config).map(Message::Exclusions),
+            Tab::Patches => self
+                .patches
+                .view(&self.config, catalogue.catalogue())
+                .map(Message::Patches),
             Tab::Log => self.log.view().map(Message::Log),
         }
     }

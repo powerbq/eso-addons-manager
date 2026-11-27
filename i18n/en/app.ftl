@@ -1,6 +1,7 @@
 tab-catalogue = Catalogue
 tab-libraries = Libraries
 tab-exclusions = Exclusions
+tab-patches = Patches
 tab-log = Log
 
 menu-title = Menu
@@ -78,6 +79,16 @@ recommended = Recommended
 exclusions-custom = Custom exclusions — one regex per line
 exclusions-automatic = Automatic (from installed addons)
 exclusions-automatic-none = None: no installed addon needs them.
+patches-custom = Custom patches — rewrite matching files on sync
+patches-automatic = Automatic (from installed addons)
+patches-automatic-none = None: no installed addon needs them.
+patches-enabled = Enabled
+patches-path = Path
+patches-from = From
+patches-to = To
+patches-add = Add rule
+patches-hint = $1 inserts a match group; $$ is a literal $
+patches-error-empty = Path and From cannot be empty
 clear = Clear
 save = Save
 

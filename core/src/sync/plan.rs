@@ -121,7 +121,8 @@ pub fn plan(
             .map_err(|error| Error::Exclusion(Arc::new(error)))?;
         // Built-in patches re-apply a small content fix to a file the sync restores from its zip
         // (e.g. DovahMova's Ukrainian guard in TTC), keyed off the installed set like exclusions.
-        let patches = Patches::new(&plan.used).map_err(|error| Error::Patch(Arc::new(error)))?;
+        let patches = Patches::new(input.config, &plan.used)
+            .map_err(|error| Error::Patch(Arc::new(error)))?;
         on_event(Event::Comparing);
         plan.actions = compare(
             &plan.sources,
