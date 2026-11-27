@@ -3,15 +3,15 @@ use std::collections::BTreeSet;
 use eso_addons_manager_core::config::Patch;
 use eso_addons_manager_core::{Catalogue, Config, patches};
 use iced::widget::{
-    button, checkbox, column, container, row, rule, scrollable, sensor, space, text, text_editor,
+    button, checkbox, column, container, row, rule, scrollable, space, text, text_editor,
     text_input,
 };
-use iced::{Center, Element, Fill, FillPortion, Font, Length, Shrink, Size};
+use iced::{Center, Element, Fill, FillPortion, Font, Length};
 
 use crate::i18n::fl;
 use crate::widget::{
-    SPACING_M, SPACING_M_NUDGE, SPACING_S, SPACING_XS, SPACING_XXXL, button_style, inverted_input,
-    plain_editor, secondary, single_line, surface,
+    HEADER_HEIGHT, SPACING_M, SPACING_M_NUDGE, SPACING_S, SPACING_XS, SPACING_XXXL, button_style,
+    inverted_input, plain_editor, secondary, single_line, surface,
 };
 
 const PADDING: f32 = SPACING_M_NUDGE;
@@ -27,7 +27,6 @@ pub struct Patches {
     automatic: Vec<(String, [text_editor::Content; 3])>,
     automatic_src: Vec<(String, Patch)>,
     error: Option<String>,
-    header_height: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +42,6 @@ pub enum Message {
     Browsed(usize, usize, text_editor::Action),
     Clear,
     Save,
-    HeaderMeasured(Size),
 }
 
 pub enum Action {
@@ -59,7 +57,6 @@ impl Patches {
             automatic: automatic_src.iter().map(contents_of).collect(),
             automatic_src,
             error: None,
-            header_height: None,
         }
     }
 
@@ -137,10 +134,6 @@ impl Patches {
                 }
                 Action::None
             }
-            Message::HeaderMeasured(size) => {
-                self.header_height = Some(size.height);
-                Action::None
-            }
             Message::Clear => {
                 self.rules.clear();
                 self.error = None;
@@ -187,9 +180,11 @@ impl Patches {
         .spacing(SPACING_M_NUDGE)
         .align_y(Center);
 
-        let custom_header = sensor(surface(custom_header)).on_resize(Message::HeaderMeasured);
+        let custom_header = surface(custom_header)
+            .height(Length::Fixed(HEADER_HEIGHT))
+            .align_y(Center);
         let automatic_header = surface(secondary(fl!("patches-automatic")))
-            .height(self.header_height.map_or(Shrink, Length::Fixed))
+            .height(Length::Fixed(HEADER_HEIGHT))
             .align_y(Center);
 
         let last = self.rules.len().saturating_sub(1);

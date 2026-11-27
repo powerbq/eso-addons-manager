@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
 use eso_addons_manager_core::{Config, exclusions};
-use iced::widget::{button, column, container, row, rule, sensor, space, text, text_editor};
-use iced::{Center, Element, Fill, FillPortion, Font, Length, Shrink, Size};
+use iced::widget::{button, column, container, row, rule, space, text, text_editor};
+use iced::{Center, Element, Fill, FillPortion, Font, Length};
 
 use crate::i18n::fl;
 use crate::widget::{
-    SPACING_M_NUDGE, button_style, inverted_editor, plain_editor, secondary, single_line, surface,
+    HEADER_HEIGHT, SPACING_M_NUDGE, button_style, inverted_editor, plain_editor, secondary,
+    single_line, surface,
 };
 
 const PADDING: f32 = SPACING_M_NUDGE;
@@ -15,7 +16,6 @@ pub struct Exclusions {
     content: text_editor::Content,
     automatic: text_editor::Content,
     error: Option<String>,
-    header_height: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,7 +24,6 @@ pub enum Message {
     Browsed(text_editor::Action),
     Clear,
     Save,
-    HeaderMeasured(Size),
 }
 
 pub enum Action {
@@ -38,7 +37,6 @@ impl Exclusions {
             content: text_editor::Content::with_text(&config.exclusions.join("\n")),
             automatic: text_editor::Content::with_text(&automatic_text(installed, ttc_managed)),
             error: None,
-            header_height: None,
         }
     }
 
@@ -60,10 +58,6 @@ impl Exclusions {
                 if !action.is_edit() {
                     self.automatic.perform(action);
                 }
-                Action::None
-            }
-            Message::HeaderMeasured(size) => {
-                self.header_height = Some(size.height);
                 Action::None
             }
             Message::Clear => {
@@ -100,9 +94,11 @@ impl Exclusions {
         .spacing(SPACING_M_NUDGE)
         .align_y(Center);
 
-        let custom_header = sensor(surface(custom_header)).on_resize(Message::HeaderMeasured);
+        let custom_header = surface(custom_header)
+            .height(Length::Fixed(HEADER_HEIGHT))
+            .align_y(Center);
         let automatic_header = surface(secondary(fl!("exclusions-automatic")))
-            .height(self.header_height.map_or(Shrink, Length::Fixed))
+            .height(Length::Fixed(HEADER_HEIGHT))
             .align_y(Center);
 
         let mut custom = column![

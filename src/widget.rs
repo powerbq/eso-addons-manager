@@ -20,6 +20,9 @@ pub const SPACING_L: f32 = 16.0;
 pub const SPACING_XL: f32 = 20.0;
 pub const SPACING_XXXL: f32 = 32.0;
 pub const SURFACE_PADDING: f32 = SPACING_M_NUDGE;
+// Fixed height of a two-column panel header, sized from the standard scale to hold a button
+// (so the custom and automatic headers always match without measuring either).
+pub const HEADER_HEIGHT: f32 = SPACING_XXXL + SPACING_L;
 
 pub const BAR_BUTTON_PADDING: Padding = Padding {
     top: SPACING_S,
