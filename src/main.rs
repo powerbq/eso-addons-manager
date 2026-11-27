@@ -33,8 +33,8 @@ use iced::futures::channel::mpsc;
 use iced::theme::Palette;
 use iced::theme::palette::{self, Extended, Pair, Secondary};
 use iced::widget::{
-    button, center, checkbox, column, container, mouse_area, opaque, radio, row, rule, scrollable,
-    sensor, space, stack, text, text_editor, text_input, tooltip,
+    button, center, checkbox, column, container, markdown, mouse_area, opaque, radio, row, rule,
+    scrollable, sensor, space, stack, text, text_editor, text_input, tooltip,
 };
 use iced::{
     Center, Element, Fill, Font, Padding, Right, Settings, Size, Subscription, Task, Theme, color,
@@ -49,8 +49,8 @@ use crate::screen::log::Log;
 use crate::screen::{Screen, catalogue, exclusions, libraries, patches};
 use crate::widget::{
     BAR_BUTTON_PADDING, BODY_TEXT_SIZE, SPACING_L, SPACING_M, SPACING_M_NUDGE, SPACING_S_NUDGE,
-    SPACING_XL, SPACING_XXS, SURFACE_PADDING, button_style, open_url, secondary, single_line,
-    spinner, surface,
+    SPACING_XL, SPACING_XXS, SURFACE_PADDING, button_style, field_fill, open_url, secondary,
+    single_line, spinner, surface,
 };
 
 const LOG_CHUNK: usize = 256;
@@ -195,7 +195,7 @@ struct Manager {
     sync_on_launch_pending: bool,
     update_ui: bool,
     pending_update: bool,
-    update_page: Option<String>,
+    update_available: Option<update::Available>,
     synced_addons: BTreeSet<String>,
     recommended: BTreeMap<String, Vec<String>>,
     dependents: BTreeMap<String, Vec<String>>,
@@ -280,7 +280,10 @@ enum Dialog {
     ChooseFolder {
         configured: bool,
     },
-    UpdateAvailable,
+    UpdateAvailable {
+        new: String,
+        notes: markdown::Content,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -417,7 +420,7 @@ impl Manager {
                     sync_on_launch_pending: false,
                     update_ui,
                     pending_update: false,
-                    update_page: None,
+                    update_available: None,
                     synced_addons: BTreeSet::new(),
                     recommended: BTreeMap::new(),
                     dependents: BTreeMap::new(),
@@ -498,7 +501,7 @@ impl Manager {
             sync_on_launch_pending: config.sync_on_launch,
             update_ui,
             pending_update: false,
-            update_page: None,
+            update_available: None,
             synced_addons: config.addons.keys().cloned().collect(),
             recommended: BTreeMap::new(),
             dependents: BTreeMap::new(),
@@ -697,7 +700,7 @@ impl Manager {
                 self.close_dialog();
                 if self.pending_update && self.activity.is_none() {
                     self.pending_update = false;
-                    self.dialog = Some(Dialog::UpdateAvailable);
+                    self.dialog = self.update_dialog();
                 }
                 Task::none()
             }
@@ -909,14 +912,14 @@ impl Manager {
                 match result {
                     Ok(Some(available)) => {
                         tracing::info!("update available: {}", available.version);
-                        self.update_page = Some(available.page);
+                        self.update_available = Some(available);
                         if self.sync_on_launch_pending
                             || self.activity.is_some()
                             || self.dialog.is_some()
                         {
                             self.pending_update = true;
                         } else {
-                            self.dialog = Some(Dialog::UpdateAvailable);
+                            self.dialog = self.update_dialog();
                         }
                     }
                     Ok(None) => {
@@ -942,10 +945,12 @@ impl Manager {
             }
             Message::UpdateOpenPage => {
                 self.dialog = None;
-                self.confirm_open = self
-                    .update_page
-                    .clone()
-                    .or_else(|| Some(update::stable_page()));
+                self.confirm_open = Some(
+                    self.update_available
+                        .as_ref()
+                        .map(|available| available.page.clone())
+                        .unwrap_or_else(update::stable_page),
+                );
                 Task::none()
             }
             Message::UpdateDisable => {
@@ -1537,6 +1542,17 @@ impl Manager {
             refresh,
         )
         .map(Message::Sync)
+    }
+
+    // The "update available" dialog, built from the pending `Available`. Its notes body is parsed into a
+    // `markdown::Content` once here (the view is re-run every frame, so it must not re-parse). `None` when
+    // no update is pending — the callers keep whatever dialog was already open.
+    fn update_dialog(&self) -> Option<Dialog> {
+        let available = self.update_available.as_ref()?;
+        Some(Dialog::UpdateAvailable {
+            new: available.version.clone(),
+            notes: markdown::Content::parse(&available.notes),
+        })
     }
 
     fn close_dialog(&mut self) {
@@ -2468,15 +2484,46 @@ fn dialog_view(dialog: &Dialog, page_height: f32) -> Element<'_, Message> {
                 dialog_button(fl!("no-folder-choose"), Message::ChooseFolder),
             ],
         ),
-        Dialog::UpdateAvailable => dialog_frame(
-            fl!("update-title"),
-            text(fl!("update-available")),
-            vec![
-                dialog_button(fl!("cancel"), Message::DialogClosed),
-                dialog_button(fl!("update-dont-ask"), Message::UpdateDisable),
-                dialog_button(fl!("update-open-page"), Message::UpdateOpenPage),
-            ],
-        ),
+        Dialog::UpdateAvailable { new, notes } => {
+            // Render every Markdown element — body and all heading levels — at the app's body text size,
+            // so the notes read as one uniform size; hierarchy is left to the viewer's bold headings,
+            // not bigger text.
+            let size = BODY_TEXT_SIZE.into();
+            let settings = markdown::Settings {
+                text_size: size,
+                h1_size: size,
+                h2_size: size,
+                h3_size: size,
+                h4_size: size,
+                h5_size: size,
+                h6_size: size,
+                code_size: size,
+                spacing: DIALOG_SPACING.into(),
+                style: markdown::Style::from(theme()),
+            };
+
+            dialog_frame(
+                fl!("update-available-version", new = new.as_str()),
+                column![
+                    text(fl!("update-whats-new")),
+                    container(
+                        scrollable(markdown::view(notes.items(), settings).map(Message::OpenPage))
+                            .width(Fill)
+                            .spacing(DIALOG_SPACING),
+                    )
+                    .width(Fill)
+                    .max_height(page_height * REPORT_HEIGHT_RATIO)
+                    .padding(DIALOG_SPACING)
+                    .style(field_fill),
+                ]
+                .spacing(DIALOG_SPACING),
+                vec![
+                    dialog_button(fl!("cancel"), Message::DialogClosed),
+                    dialog_button(fl!("update-dont-ask"), Message::UpdateDisable),
+                    dialog_button(fl!("update-open-page"), Message::UpdateOpenPage),
+                ],
+            )
+        }
     }
 }
 
@@ -2592,37 +2639,44 @@ fn acquire_instance_lock(paths: &paths::Paths) -> Instance {
 async fn check_updates(beta: bool) -> Result<Option<update::Available>, String> {
     let client = api::Client::new().map_err(|error| error.to_string())?;
 
-    if beta {
-        // Beta mode: the GitHub API, picking the newest release by semver (pre-releases included).
-        let body = client
-            .text(update::releases_api())
-            .await
-            .map_err(|error| error.to_string())?;
-        let releases: Vec<update::Release> =
-            serde_json::from_str(&body).map_err(|error| error.to_string())?;
-        let Some(tag) = update::newest(&releases) else {
-            return Ok(None);
-        };
-        let version = tag.strip_prefix('v').unwrap_or(tag);
-        Ok(update::is_newer(version).then(|| update::Available {
-            version: version.to_owned(),
-            page: update::tag_page(tag),
-        }))
+    // One request for the whole release list; each release already carries its notes body, so the
+    // cumulative changelog since the running build needs no extra call. Beta includes pre-releases.
+    let body = client
+        .text(update::releases_api())
+        .await
+        .map_err(|error| error.to_string())?;
+    let releases: Vec<update::Release> =
+        serde_json::from_str(&body).map_err(|error| error.to_string())?;
+
+    let newer = update::newer_than_current(&releases, beta);
+    let Some(latest) = newer.first() else {
+        return Ok(None);
+    };
+    let tag = latest.tag_name.as_str();
+    let version = tag.strip_prefix('v').unwrap_or(tag).to_owned();
+
+    // The notes of every skipped version, newest first. Each git-cliff body self-labels its version
+    // (`## [x.y.z]`), so the joined text reads as one multi-version changelog. Empty bodies are dropped.
+    let notes = newer
+        .iter()
+        .filter_map(|release| {
+            let body = release.body.clone().unwrap_or_default().trim().to_owned();
+            (!body.is_empty()).then_some(body)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let page = if beta {
+        update::tag_page(tag)
     } else {
-        // Stable mode: the GitHub API `releases/latest` — the newest non-draft, non-prerelease.
-        let body = client
-            .text(&update::stable_latest_api())
-            .await
-            .map_err(|error| error.to_string())?;
-        let release: update::Release =
-            serde_json::from_str(&body).map_err(|error| error.to_string())?;
-        let tag = release.tag_name.as_str();
-        let version = tag.strip_prefix('v').unwrap_or(tag);
-        Ok(update::is_newer(version).then(|| update::Available {
-            version: version.to_owned(),
-            page: update::stable_page(),
-        }))
-    }
+        update::stable_page()
+    };
+
+    Ok(Some(update::Available {
+        version,
+        page,
+        notes,
+    }))
 }
 
 // Whether the settings file still carries the in-app update keys (left from a past direct launch).

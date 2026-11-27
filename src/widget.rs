@@ -298,3 +298,16 @@ pub fn plain_editor(theme: &Theme, status: text_editor::Status) -> text_editor::
         ..default
     }
 }
+
+// A container filled like the read-only log field — the same default text-editor background with a
+// transparent border, matching `plain_editor` — for read-only regions that should read as an inert
+// field rather than plain surface.
+pub fn field_fill(theme: &Theme) -> container::Style {
+    let editor = text_editor::default(theme, text_editor::Status::Active);
+
+    container::Style {
+        background: Some(editor.background),
+        border: editor.border.color(Color::TRANSPARENT),
+        ..container::Style::default()
+    }
+}

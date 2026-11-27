@@ -28,7 +28,7 @@ directories = "6.0.0"
 eso_addons_manager_core.workspace = true
 i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
 i18n-embed-fl = "0.10"
-iced = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "web-colors", "x11", "wayland", "image-without-codecs", "svg", "tokio"] }
+iced = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "crisp", "web-colors", "x11", "wayland", "image-without-codecs", "svg", "markdown", "tokio"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
 litehtml = { version = "0.2.6", features = ["pixbuf"] }
 lucide-icons = "1.73"

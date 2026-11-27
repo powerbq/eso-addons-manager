@@ -4,12 +4,16 @@ use serde::Deserialize;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const RELEASES: &str = "https://github.com/powerbq/eso-addons-manager/releases";
-const RELEASES_API: &str = "https://api.github.com/repos/powerbq/eso-addons-manager/releases";
+// The full release list, newest first. `per_page=100` keeps every skipped version in one response so the
+// dialog can show the whole changelog since the running build without paging.
+const RELEASES_API: &str =
+    "https://api.github.com/repos/powerbq/eso-addons-manager/releases?per_page=100";
 
 #[derive(Debug, Clone)]
 pub struct Available {
     pub version: String,
     pub page: String,
+    pub notes: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -17,10 +21,10 @@ pub struct Release {
     pub tag_name: String,
     #[serde(default)]
     pub draft: bool,
-}
-
-pub fn stable_latest_api() -> String {
-    format!("{RELEASES_API}/latest")
+    // The git-cliff-rendered release notes (Markdown). GitHub sends `null` when a release has no
+    // body, so it is optional and absent for drafts we never show.
+    #[serde(default)]
+    pub body: Option<String>,
 }
 
 pub fn stable_page() -> String {
@@ -39,26 +43,36 @@ pub fn releases_api() -> &'static str {
 // running build by SemVer precedence. `CARGO_PKG_VERSION` is the build's full version — under
 // manifest-authoritative versioning it carries any `-rc.N`, so an rc build knows it is an rc and is
 // correctly offered the final (`0.1.0 > 0.1.0-rc.2`).
-pub fn is_newer(remote: &str) -> bool {
+fn is_newer(remote: &str) -> bool {
     match (Version::parse(remote.trim()), Version::parse(VERSION)) {
         (Ok(remote), Ok(current)) => remote > current,
         _ => false,
     }
 }
 
-// The newest release tag by SemVer among non-drafts (pre-releases included). Returning the max over all
-// non-drafts — not just pre-releases — keeps the beta path non-empty: with no rc it falls to the stable
-// latest. Tags keep their leading `v`.
-pub fn newest(releases: &[Release]) -> Option<&str> {
-    releases
+// Every non-draft release strictly newer than the running build, newest first — so the dialog shows the
+// notes for all versions the user skipped, not just the latest. Beta keeps pre-releases; stable drops
+// them (an empty SemVer pre-release). Returns whole releases (tag kept with its leading `v`, plus body).
+pub fn newer_than_current(releases: &[Release], beta: bool) -> Vec<&Release> {
+    let mut newer: Vec<(Version, &Release)> = releases
         .iter()
         .filter(|release| !release.draft)
         .filter_map(|release| {
             let version = Version::parse(release.tag_name.strip_prefix('v')?).ok()?;
-            Some((version, release.tag_name.as_str()))
+            Some((version, release))
         })
-        .max_by(|a, b| a.0.cmp(&b.0))
-        .map(|(_, tag)| tag)
+        .filter(|(version, _)| beta || version.pre.is_empty())
+        .filter(|(_, release)| {
+            is_newer(
+                release
+                    .tag_name
+                    .strip_prefix('v')
+                    .unwrap_or(&release.tag_name),
+            )
+        })
+        .collect();
+    newer.sort_by(|a, b| b.0.cmp(&a.0));
+    newer.into_iter().map(|(_, release)| release).collect()
 }
 
 #[cfg(test)]
@@ -69,7 +83,23 @@ mod tests {
         Release {
             tag_name: tag.to_owned(),
             draft,
+            body: None,
         }
+    }
+
+    // Tags built relative to the running build's version, so these tests hold whatever `CARGO_PKG_VERSION`
+    // is at compile time.
+    fn current() -> Version {
+        Version::parse(VERSION).unwrap()
+    }
+
+    fn bumped(minor: u64) -> String {
+        let current = current();
+        format!("v{}.{}.0", current.major, current.minor + minor)
+    }
+
+    fn tags(releases: &[&Release]) -> Vec<String> {
+        releases.iter().map(|r| r.tag_name.clone()).collect()
     }
 
     #[test]
@@ -84,34 +114,42 @@ mod tests {
 
     #[test]
     fn a_release_outranks_its_pre_release() {
-        let current = Version::parse(VERSION).unwrap();
-        let final_version =
-            Version::parse(&format!("{}.{}.{}", current.major, current.minor + 1, 0)).unwrap();
+        let final_version = Version::parse(&bumped(1)[1..]).unwrap();
         let rc = Version::parse(&format!("{final_version}-rc.1")).unwrap();
         assert!(rc < final_version);
     }
 
     #[test]
-    fn newest_picks_max_by_semver_and_skips_drafts() {
+    fn newer_than_current_collects_every_newer_release_newest_first() {
+        let one = bumped(1);
+        let two = bumped(2);
         let releases = [
-            release("v0.1.0-rc.1", false),
-            release("v0.1.0-rc.10", false),
-            release("v0.1.0-rc.2", false),
-            release("v9.9.9", true), // draft: ignored even though highest
+            release(&one, false),
+            release(&format!("v{VERSION}"), false), // the running build: not newer
+            release(&two, false),
         ];
-        assert_eq!(newest(&releases), Some("v0.1.0-rc.10"));
+        assert_eq!(
+            tags(&newer_than_current(&releases, false)),
+            vec![two.clone(), one.clone()]
+        );
     }
 
     #[test]
-    fn newest_prefers_a_final_over_its_rc() {
-        let releases = [release("v0.1.0-rc.3", false), release("v0.1.0", false)];
-        assert_eq!(newest(&releases), Some("v0.1.0"));
+    fn newer_than_current_keeps_pre_releases_only_for_beta() {
+        let rc = format!("{}-rc.1", bumped(1));
+        let releases = [release(&rc, false)];
+        assert_eq!(tags(&newer_than_current(&releases, true)), vec![rc]);
+        assert!(newer_than_current(&releases, false).is_empty());
     }
 
     #[test]
-    fn newest_is_none_without_parsable_non_drafts() {
-        assert_eq!(newest(&[]), None);
-        assert_eq!(newest(&[release("nightly", false)]), None);
-        assert_eq!(newest(&[release("v1.0.0", true)]), None);
+    fn newer_than_current_skips_drafts_and_unparsable_and_older() {
+        let newer = bumped(1);
+        let releases = [
+            release(&newer, true),     // draft: ignored even though newer
+            release("nightly", false), // unparsable
+            release("v0.0.0", false),  // older than any real build
+        ];
+        assert!(newer_than_current(&releases, true).is_empty());
     }
 }
