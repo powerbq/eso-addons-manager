@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Read};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -46,6 +46,7 @@ pub fn apply(plan: &Plan, target: &Path, mut on_event: impl FnMut(Event)) -> Res
                 path,
                 source,
                 entry,
+                patch,
                 ..
             } => {
                 let mut file =
@@ -55,9 +56,16 @@ pub fn apply(plan: &Plan, target: &Path, mut on_event: impl FnMut(Event)) -> Res
                             path: plan.sources[*source].path.clone(),
                             error: error.into(),
                         })?;
-                let path = target.join(path);
-                let mut output = File::create(&path).map_err(failed(&path))?;
-                io::copy(&mut file, &mut output).map_err(failed(&path))?;
+                let target_path = target.join(path);
+                if *patch {
+                    let mut raw = Vec::new();
+                    file.read_to_end(&mut raw).map_err(failed(&target_path))?;
+                    let patched = plan.patches.apply(path, &raw);
+                    fs::write(&target_path, &*patched).map_err(failed(&target_path))?;
+                } else {
+                    let mut output = File::create(&target_path).map_err(failed(&target_path))?;
+                    io::copy(&mut file, &mut output).map_err(failed(&target_path))?;
+                }
             }
         }
     }

@@ -19,6 +19,8 @@ pub use plan::{Input, Source, plan};
 pub enum Error {
     #[error("invalid exclusion: {0}")]
     Exclusion(Arc<regex::Error>),
+    #[error("invalid patch: {0}")]
+    Patch(Arc<regex::Error>),
     #[error("cannot read the AddOns folder: {0}")]
     Target(Arc<io::Error>),
     #[error("cannot read {path}: {error}")]
@@ -53,6 +55,7 @@ pub struct Plan {
     pub dependents: BTreeMap<String, BTreeSet<String>>,
     pub superseded: BTreeSet<(usize, String)>,
     pub ttc: Option<crate::ttc::Outcome>,
+    pub(crate) patches: crate::patches::Patches,
 }
 
 impl Plan {
@@ -71,6 +74,7 @@ pub enum Action {
         source: usize,
         entry: usize,
         replace: bool,
+        patch: bool,
     },
 }
 

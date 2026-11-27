@@ -7,6 +7,7 @@ pub mod config;
 pub mod deps;
 pub mod exclusions;
 pub mod html;
+mod patches;
 pub mod scan;
 pub mod store;
 pub mod sync;

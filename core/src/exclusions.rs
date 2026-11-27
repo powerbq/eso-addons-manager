@@ -6,6 +6,7 @@ use crate::config::Config;
 
 const TTC: &str = "1245";
 const HARVEST_MAP: &str = "3034";
+const DOVAHMOVA: &str = "4202";
 const TTC_LANGUAGES: [&str; 7] = ["DE", "EN", "ES", "FR", "JP", "RU", "ZH"];
 const HARVEST_MAP_REGIONS: [&str; 5] = ["AD", "DC", "EP", "NF", "DLC"];
 
@@ -79,7 +80,19 @@ fn built_in(ttc_managed: bool) -> Vec<(&'static str, Vec<String>)> {
         }))
         .collect();
 
-    vec![(TTC, ttc), (HARVEST_MAP, harvest_map)]
+    // DovahMova's TTC integration drops Ukrainian overlay files into the TTC folder that the sync
+    // would otherwise remove as extraneous (they are in no zip and UA is not a price-sync language).
+    // We protect them, we do not create them; they stay regardless of `ttc_managed` (not price files).
+    let dovahmova = vec![
+        r"^TamrielTradeCentre/lang/ua\.lua$".to_owned(),
+        r"^TamrielTradeCentre/ItemLookUpTable_UA\.lua$".to_owned(),
+    ];
+
+    vec![
+        (TTC, ttc),
+        (HARVEST_MAP, harvest_map),
+        (DOVAHMOVA, dovahmova),
+    ]
 }
 
 #[cfg(test)]
@@ -175,6 +188,26 @@ mod tests {
         assert_eq!(automatic(&installed(&[TTC]), true).len(), 3);
         assert_eq!(automatic(&installed(&[HARVEST_MAP]), true).len(), 12);
         assert_eq!(automatic(&installed(&[TTC, HARVEST_MAP]), true).len(), 15);
+    }
+
+    #[test]
+    fn dovahmova_protects_its_ttc_overlay_files_regardless_of_price_management() {
+        for ttc_managed in [false, true] {
+            let exclusions =
+                Exclusions::new(&Config::default(), &installed(&[DOVAHMOVA]), ttc_managed).unwrap();
+
+            assert!(exclusions.matches("TamrielTradeCentre/lang/ua.lua"));
+            assert!(exclusions.matches("TamrielTradeCentre/ItemLookUpTable_UA.lua"));
+            assert!(!exclusions.matches("TamrielTradeCentre/ItemLookUpTable_EN.lua"));
+        }
+
+        assert_eq!(automatic(&installed(&[DOVAHMOVA]), false).len(), 2);
+        assert_eq!(automatic(&installed(&[DOVAHMOVA]), true).len(), 2);
+        assert!(
+            !automatic(&installed(&[]), false)
+                .iter()
+                .any(|r| r.contains("ua"))
+        );
     }
 
     #[test]

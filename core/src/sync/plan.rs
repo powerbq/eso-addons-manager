@@ -10,6 +10,7 @@ use super::{Action, Error, Event, Failure, Plan};
 use crate::catalogue::{Addon, Catalogue};
 use crate::config::Config;
 use crate::exclusions::Exclusions;
+use crate::patches::Patches;
 use crate::{cache, deps};
 
 pub struct Input<'a> {
@@ -118,8 +119,18 @@ pub fn plan(
         // files while the manager is not managing prices.
         let exclusions = Exclusions::new(input.config, &plan.used, ttc_managed)
             .map_err(|error| Error::Exclusion(Arc::new(error)))?;
+        // Built-in patches re-apply a small content fix to a file the sync restores from its zip
+        // (e.g. DovahMova's Ukrainian guard in TTC), keyed off the installed set like exclusions.
+        let patches = Patches::new(&plan.used).map_err(|error| Error::Patch(Arc::new(error)))?;
         on_event(Event::Comparing);
-        plan.actions = compare(&plan.sources, &plan.superseded, input.target, &exclusions)?;
+        plan.actions = compare(
+            &plan.sources,
+            &plan.superseded,
+            input.target,
+            &exclusions,
+            &patches,
+        )?;
+        plan.patches = patches;
     }
 
     tracing::info!(
@@ -528,6 +539,7 @@ fn compare(
     superseded: &BTreeSet<(usize, String)>,
     target: &Path,
     exclusions: &Exclusions,
+    patches: &Patches,
 ) -> Result<Vec<Action>, Error> {
     let mut archives = sources
         .iter()
@@ -618,15 +630,25 @@ fn compare(
     );
 
     for (path, file) in &files {
+        // A patched file is compared against `patch(zip)`, not the raw zip, so its on-disk size no
+        // longer matches `file.size` (the zip's uncompressed size) — the size shortcut is skipped and
+        // the patched bytes are compared directly.
+        let patch = patches.matches(path);
         let replace = match existing.get(path) {
             Some(Existing::File(size)) => {
-                if *size == file.size
-                    && !differs(&mut archives[file.source], file.entry, &target.join(path))
-                        .map_err(|error| Error::Archive {
-                            path: sources[file.source].path.clone(),
-                            error,
-                        })?
-                {
+                let patched = patch.then_some((patches, path.as_str()));
+                let unchanged = (patch || *size == file.size)
+                    && !differs(
+                        &mut archives[file.source],
+                        file.entry,
+                        patched,
+                        &target.join(path),
+                    )
+                    .map_err(|error| Error::Archive {
+                        path: sources[file.source].path.clone(),
+                        error,
+                    })?;
+                if unchanged {
                     continue;
                 }
                 true
@@ -639,6 +661,7 @@ fn compare(
             source: file.source,
             entry: file.entry,
             replace,
+            patch,
         });
     }
 
@@ -682,9 +705,19 @@ fn walk(target: &Path) -> io::Result<BTreeMap<String, Existing>> {
     Ok(existing)
 }
 
-fn differs(archive: &mut ZipArchive<File>, entry: usize, path: &Path) -> Result<bool, deps::Error> {
+fn differs(
+    archive: &mut ZipArchive<File>,
+    entry: usize,
+    patched: Option<(&Patches, &str)>,
+    path: &Path,
+) -> Result<bool, deps::Error> {
     let mut expected = Vec::new();
     archive.by_index(entry)?.read_to_end(&mut expected)?;
+
+    let expected = match patched {
+        Some((patches, entry_path)) => patches.apply(entry_path, &expected).into_owned(),
+        None => expected,
+    };
 
     Ok(fs::read(path)? != expected)
 }
